@@ -4,16 +4,59 @@ permissions:
   contents: write
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches:
-      - main
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
 
 jobs:
+  check:
+    name: check for changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      allium_sha: ${{ steps.check.outputs.allium_sha }}
+      themes_sha: ${{ steps.check.outputs.themes_sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check for changes
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ALLIUM_SHA=$(git rev-parse HEAD)
+          THEMES_SHA=$(git ls-remote https://github.com/goweiwen/Allium-Themes.git HEAD | awk '{print $1}')
+
+          echo "allium_sha=$ALLIUM_SHA" >> "$GITHUB_OUTPUT"
+          echo "themes_sha=$THEMES_SHA" >> "$GITHUB_OUTPUT"
+
+          echo "Current Allium: $ALLIUM_SHA"
+          echo "Current Themes: $THEMES_SHA"
+
+          if BODY=$(gh release view nightly --json body --jq .body 2>/dev/null); then
+            LAST_ALLIUM=$(echo "$BODY" | grep -oP '^Allium:\s*\K\S+' || true)
+            LAST_THEMES=$(echo "$BODY" | grep -oP '^Themes:\s*\K\S+' || true)
+
+            echo "Last Allium:    ${LAST_ALLIUM:-<none>}"
+            echo "Last Themes:    ${LAST_THEMES:-<none>}"
+
+            if [ "$ALLIUM_SHA" = "$LAST_ALLIUM" ] && [ "$THEMES_SHA" = "$LAST_THEMES" ]; then
+              echo "No changes since last nightly; skipping build."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Changes detected; build will proceed."
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "No existing nightly release; build will proceed."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   nightly:
     name: deploy nightly
-    if: github.event.workflow_run.conclusion == 'success'
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -48,7 +91,7 @@ jobs:
 
       - name: Move nightly tag
         run: |
-          git tag -f nightly ${{ github.sha }}
+          git tag -f nightly ${{ needs.check.outputs.allium_sha }}
           git push origin nightly --force
 
       - name: Update nightly prerelease
@@ -63,6 +106,7 @@ jobs:
 
             **Warning**: This is an unstable development build and may contain bugs.
 
-            Commit: ${{ github.sha }}
+            Allium: ${{ needs.check.outputs.allium_sha }}
+            Themes: ${{ needs.check.outputs.themes_sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
