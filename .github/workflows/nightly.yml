@@ -46,14 +46,12 @@ jobs:
           zip -r ../allium-${{ matrix.target }}.zip .allium .tmp_update RetroArch Apps BIOS Roms Saves Themes
           cd -
 
-      - name: Delete old nightly release
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move nightly tag
         run: |
-          gh release delete nightly --yes --cleanup-tag
+          git tag -f nightly ${{ github.sha }}
+          git push origin nightly --force
 
-      - name: Create nightly prerelease
+      - name: Update nightly prerelease
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
