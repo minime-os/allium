@@ -10,3 +10,4 @@ SDL2.dll
 devenv.lock
 local.mk
 /docs
+.agents/rules
