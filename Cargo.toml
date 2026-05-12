@@ -11,6 +11,7 @@ members = [
     "crates/screenshot",
     "crates/screenshot-viewer",
     "crates/show",
+    "crates/play",
 ]
 exclude = [
     "third-party/dufs"
