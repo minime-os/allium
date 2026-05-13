@@ -3,6 +3,8 @@ use crate::callbacks::{self, LibretroCallbacks};
 use crate::core::Core;
 use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
 use crate::libretro_sys::*;
+#[cfg(feature = "miyoo")]
+use crate::miyoo_video::{MiyooPixelFormat, MiyooVideo};
 use crate::paths::PlayPaths;
 #[cfg(feature = "simulator")]
 use crate::simulator_video::{SimulatorPixelFormat, SimulatorVideo};
@@ -180,6 +182,8 @@ impl PlaySession {
         #[cfg(feature = "simulator")]
         let mut simulator_video =
             SimulatorVideo::new(av_info.geometry.base_width, av_info.geometry.base_height)?;
+        #[cfg(feature = "miyoo")]
+        let mut miyoo_video = MiyooVideo::new()?;
 
         info!(
             "Starting main emulation loop at {} fps{}",
@@ -206,6 +210,8 @@ impl PlaySession {
                 shutdown_reason = "window closed";
                 break;
             }
+            #[cfg(feature = "miyoo")]
+            self.present_miyoo_frame(&mut miyoo_video)?;
             next_frame_at += frame_interval;
 
             let sleep_until = tokio::time::Instant::from_std(next_frame_at);
@@ -254,6 +260,21 @@ impl PlaySession {
             Some(FramePixelFormat::Rgb565) => SimulatorPixelFormat::Rgb565,
             Some(FramePixelFormat::Xrgb8888) => SimulatorPixelFormat::Xrgb8888,
             None => return Ok(false),
+        };
+
+        video.present(frame, format)
+    }
+
+    #[cfg(feature = "miyoo")]
+    fn present_miyoo_frame(&self, video: &mut MiyooVideo) -> Result<()> {
+        let frame = match &self.captured_frame {
+            Some(frame) => frame,
+            None => return Ok(()),
+        };
+        let format = match self.pixel_format {
+            Some(FramePixelFormat::Rgb565) => MiyooPixelFormat::Rgb565,
+            Some(FramePixelFormat::Xrgb8888) => MiyooPixelFormat::Xrgb8888,
+            None => return Ok(()),
         };
 
         video.present(frame, format)

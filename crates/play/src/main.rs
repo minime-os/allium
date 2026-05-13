@@ -7,6 +7,8 @@ mod core;
 mod frame;
 mod libretro_sys;
 mod logs;
+#[cfg(feature = "miyoo")]
+mod miyoo_video;
 mod paths;
 mod session;
 #[cfg(feature = "simulator")]

@@ -493,9 +493,9 @@ This is a Play-specific video path. Do not route emulator frames through `common
 
 ### Done when
 
-- [ ] Native-size hw video works
-- [ ] Pitch-aware copies work
-- [ ] No per-frame allocation in the present path
+- [x] Native-size hw video works
+- [x] Pitch-aware copies work
+- [x] No per-frame allocation in the present path
 
 ### Commit message suggestion
 

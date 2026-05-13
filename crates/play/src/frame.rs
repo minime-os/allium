@@ -98,6 +98,50 @@ pub fn convert_xrgb8888_to_xrgb8888(frame: &CapturedFrame, output: &mut [u32]) -
     Ok(())
 }
 
+#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+pub fn copy_rgb565_to_rgb565(
+    frame: &CapturedFrame,
+    output: &mut [u8],
+    output_pitch: usize,
+) -> Result<()> {
+    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
+    validate_byte_output(frame, output, output_pitch, RGB565_BYTES_PER_PIXEL)?;
+
+    let row_bytes = frame.width as usize * RGB565_BYTES_PER_PIXEL;
+    for y in 0..frame.height as usize {
+        let source_start = y * frame.pitch;
+        let output_start = y * output_pitch;
+        output[output_start..output_start + row_bytes]
+            .copy_from_slice(&frame.data[source_start..source_start + row_bytes]);
+    }
+
+    Ok(())
+}
+
+#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+pub fn copy_xrgb8888_to_rgb565(
+    frame: &CapturedFrame,
+    output: &mut [u8],
+    output_pitch: usize,
+) -> Result<()> {
+    validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
+    validate_byte_output(frame, output, output_pitch, RGB565_BYTES_PER_PIXEL)?;
+
+    for y in 0..frame.height as usize {
+        let row_start = y * frame.pitch;
+        let output_row_start = y * output_pitch;
+        for x in 0..frame.width as usize {
+            let pixel_start = row_start + x * XRGB8888_BYTES_PER_PIXEL;
+            let output_start = output_row_start + x * RGB565_BYTES_PER_PIXEL;
+            let bytes = &frame.data[pixel_start..pixel_start + XRGB8888_BYTES_PER_PIXEL];
+            let rgb565 = rgb_to_rgb565(bytes[2], bytes[1], bytes[0]).to_le_bytes();
+            output[output_start..output_start + RGB565_BYTES_PER_PIXEL].copy_from_slice(&rgb565);
+        }
+    }
+
+    Ok(())
+}
+
 // Validate pitch and length first so conversion never indexes past the copied frame.
 fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
     let row_bytes = frame.width as usize * bytes_per_pixel;
@@ -135,6 +179,34 @@ fn validate_output(frame: &CapturedFrame, output: &[u32]) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+fn validate_byte_output(
+    frame: &CapturedFrame,
+    output: &[u8],
+    output_pitch: usize,
+    bytes_per_pixel: usize,
+) -> Result<()> {
+    let row_bytes = frame.width as usize * bytes_per_pixel;
+    if output_pitch < row_bytes {
+        return Err(anyhow!(
+            "Destination pitch {} is smaller than row size {}",
+            output_pitch,
+            row_bytes
+        ));
+    }
+
+    let expected_len = output_pitch * frame.height as usize;
+    if output.len() < expected_len {
+        return Err(anyhow!(
+            "Destination buffer has {} bytes, expected at least {}",
+            output.len(),
+            expected_len
+        ));
+    }
+
+    Ok(())
+}
+
 // Reserving the exact size avoids reallocating while writing the dump.
 fn ppm_len(width: u32, height: u32) -> usize {
     format!("P6\n{} {}\n255\n", width, height).len() + width as usize * height as usize * 3
@@ -153,6 +225,11 @@ fn rgb565_to_rgb(bytes: &[u8]) -> [u8; 3] {
 #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
 fn pack_xrgb8888(r: u8, g: u8, b: u8) -> u32 {
     (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+}
+
+#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+fn rgb_to_rgb565(r: u8, g: u8, b: u8) -> u16 {
+    ((u16::from(r) >> 3) << 11) | ((u16::from(g) >> 2) << 5) | (u16::from(b) >> 3)
 }
 
 // Scaling keeps white white and black black when moving from 5/6 bits to 8 bits.
@@ -260,6 +337,49 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Output buffer has 1 pixels, expected at least 2"
+        );
+    }
+
+    #[test]
+    fn copies_rgb565_to_framebuffer_with_destination_pitch() {
+        let frame = CapturedFrame::new(
+            vec![0x00, 0xf8, 0x00, 0x00, 0xe0, 0x07, 0x00, 0x00],
+            1,
+            2,
+            4,
+        );
+        let mut output = vec![0; 8];
+
+        copy_rgb565_to_rgb565(&frame, &mut output, 4).unwrap();
+
+        assert_eq!(output, vec![0x00, 0xf8, 0x00, 0x00, 0xe0, 0x07, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn converts_xrgb8888_to_rgb565_framebuffer() {
+        let frame = CapturedFrame::new(
+            vec![0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0x00],
+            2,
+            1,
+            8,
+        );
+        let mut output = vec![0; 4];
+
+        copy_xrgb8888_to_rgb565(&frame, &mut output, 4).unwrap();
+
+        assert_eq!(output, vec![0x00, 0xf8, 0xe0, 0x07]);
+    }
+
+    #[test]
+    fn framebuffer_copy_rejects_short_destination_pitch() {
+        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
+        let mut output = vec![0; 2];
+
+        let err = copy_rgb565_to_rgb565(&frame, &mut output, 2).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "Destination pitch 2 is smaller than row size 4"
         );
     }
 }
