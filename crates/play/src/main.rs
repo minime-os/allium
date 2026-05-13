@@ -9,6 +9,8 @@ mod libretro_sys;
 mod logs;
 mod paths;
 mod session;
+#[cfg(feature = "simulator")]
+mod simulator_video;
 
 use anyhow::Result;
 use args::Args;

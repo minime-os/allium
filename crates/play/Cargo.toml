@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-simulator = ["common/simulator"]
+simulator = ["common/simulator", "softbuffer", "winit"]
 miyoo = ["common/miyoo"]
 
 [dependencies]
@@ -15,3 +15,5 @@ libloading = "0.8.9"
 nix = { workspace = true, features = ["fs"] }
 simple_logger.workspace = true
 tokio = { workspace = true, features = ["full"] }
+softbuffer = { workspace = true, optional = true }
+winit = { workspace = true, optional = true }

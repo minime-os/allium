@@ -4,6 +4,8 @@ use crate::core::Core;
 use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
 use crate::libretro_sys::*;
 use crate::paths::PlayPaths;
+#[cfg(feature = "simulator")]
+use crate::simulator_video::{SimulatorPixelFormat, SimulatorVideo};
 use anyhow::{Context, Result, anyhow};
 use log::{debug, info};
 use std::ffi::CString;
@@ -160,11 +162,7 @@ impl PlaySession {
     }
 
     // One retro_run call advances one emulated frame; this keeps that cadence near core FPS.
-    async fn start_main_loop(&self) -> Result<()> {
-        let core = self
-            .core
-            .as_ref()
-            .ok_or_else(|| anyhow!("Core not loaded"))?;
+    async fn start_main_loop(&mut self) -> Result<()> {
         let av_info = self
             .av_info
             .as_ref()
@@ -179,6 +177,9 @@ impl PlaySession {
         #[cfg(unix)]
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .context("Failed to install SIGTERM handler")?;
+        #[cfg(feature = "simulator")]
+        let mut simulator_video =
+            SimulatorVideo::new(av_info.geometry.base_width, av_info.geometry.base_height)?;
 
         info!(
             "Starting main emulation loop at {} fps{}",
@@ -195,8 +196,16 @@ impl PlaySession {
                 break;
             }
 
-            core.run();
+            self.core
+                .as_ref()
+                .ok_or_else(|| anyhow!("Core not loaded"))?
+                .run();
             frames_run += 1;
+            #[cfg(feature = "simulator")]
+            if self.present_simulator_frame(&mut simulator_video)? {
+                shutdown_reason = "window closed";
+                break;
+            }
             next_frame_at += frame_interval;
 
             let sleep_until = tokio::time::Instant::from_std(next_frame_at);
@@ -233,6 +242,21 @@ impl PlaySession {
         if let Some(core) = self.core.take() {
             core.unload_game();
         }
+    }
+
+    #[cfg(feature = "simulator")]
+    fn present_simulator_frame(&self, video: &mut SimulatorVideo) -> Result<bool> {
+        let frame = match &self.captured_frame {
+            Some(frame) => frame,
+            None => return Ok(false),
+        };
+        let format = match self.pixel_format {
+            Some(FramePixelFormat::Rgb565) => SimulatorPixelFormat::Rgb565,
+            Some(FramePixelFormat::Xrgb8888) => SimulatorPixelFormat::Xrgb8888,
+            None => return Ok(false),
+        };
+
+        video.present(frame, format)
     }
 
     // A one-frame dump proves callbacks and pixel conversion before real video exists.

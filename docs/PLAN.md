@@ -458,9 +458,9 @@ This is a Play-specific video path. Do not route emulator frames through `common
 
 ### Done when
 
-- [ ] Native-size sim video works
-- [ ] No per-frame allocation in conversion/present path
-- [ ] No use of Allium `Display` for game frames
+- [x] Native-size sim video works
+- [x] No per-frame allocation in conversion/present path
+- [x] No use of Allium `Display` for game frames
 
 ### Commit message suggestion
 

@@ -62,6 +62,42 @@ pub fn encode_xrgb8888_ppm(frame: &CapturedFrame) -> Result<Vec<u8>> {
     Ok(ppm_data)
 }
 
+#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+pub fn convert_rgb565_to_xrgb8888(frame: &CapturedFrame, output: &mut [u32]) -> Result<()> {
+    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
+    validate_output(frame, output)?;
+
+    for y in 0..frame.height as usize {
+        let row_start = y * frame.pitch;
+        let output_row_start = y * frame.width as usize;
+        for x in 0..frame.width as usize {
+            let pixel_start = row_start + x * RGB565_BYTES_PER_PIXEL;
+            let [r, g, b] = rgb565_to_rgb(&frame.data[pixel_start..pixel_start + 2]);
+            output[output_row_start + x] = pack_xrgb8888(r, g, b);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+pub fn convert_xrgb8888_to_xrgb8888(frame: &CapturedFrame, output: &mut [u32]) -> Result<()> {
+    validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
+    validate_output(frame, output)?;
+
+    for y in 0..frame.height as usize {
+        let row_start = y * frame.pitch;
+        let output_row_start = y * frame.width as usize;
+        for x in 0..frame.width as usize {
+            let pixel_start = row_start + x * XRGB8888_BYTES_PER_PIXEL;
+            let bytes = &frame.data[pixel_start..pixel_start + XRGB8888_BYTES_PER_PIXEL];
+            output[output_row_start + x] = pack_xrgb8888(bytes[2], bytes[1], bytes[0]);
+        }
+    }
+
+    Ok(())
+}
+
 // Validate pitch and length first so conversion never indexes past the copied frame.
 fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
     let row_bytes = frame.width as usize * bytes_per_pixel;
@@ -85,6 +121,20 @@ fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
     Ok(())
 }
 
+#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+fn validate_output(frame: &CapturedFrame, output: &[u32]) -> Result<()> {
+    let expected_len = frame.width as usize * frame.height as usize;
+    if output.len() < expected_len {
+        return Err(anyhow!(
+            "Output buffer has {} pixels, expected at least {}",
+            output.len(),
+            expected_len
+        ));
+    }
+
+    Ok(())
+}
+
 // Reserving the exact size avoids reallocating while writing the dump.
 fn ppm_len(width: u32, height: u32) -> usize {
     format!("P6\n{} {}\n255\n", width, height).len() + width as usize * height as usize * 3
@@ -98,6 +148,11 @@ fn rgb565_to_rgb(bytes: &[u8]) -> [u8; 3] {
         scale_6_to_8((pixel >> 5) & 0x3f),
         scale_5_to_8(pixel & 0x1f),
     ]
+}
+
+#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+fn pack_xrgb8888(r: u8, g: u8, b: u8) -> u32 {
+    (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
 
 // Scaling keeps white white and black black when moving from 5/6 bits to 8 bits.
@@ -153,5 +208,58 @@ mod tests {
         let err = encode_rgb565_ppm(&frame).unwrap_err();
 
         assert_eq!(err.to_string(), "Frame pitch 2 is smaller than row size 4");
+    }
+
+    #[test]
+    fn converts_rgb565_to_softbuffer_pixels() {
+        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
+        let mut output = vec![0; 2];
+
+        convert_rgb565_to_xrgb8888(&frame, &mut output).unwrap();
+
+        assert_eq!(output, vec![0x00ff0000, 0x0000ff00]);
+    }
+
+    #[test]
+    fn converts_xrgb8888_to_softbuffer_pixels() {
+        let frame = CapturedFrame::new(
+            vec![0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0x00],
+            2,
+            1,
+            8,
+        );
+        let mut output = vec![0; 2];
+
+        convert_xrgb8888_to_xrgb8888(&frame, &mut output).unwrap();
+
+        assert_eq!(output, vec![0x00ff0000, 0x0000ff00]);
+    }
+
+    #[test]
+    fn conversion_respects_source_pitch() {
+        let frame = CapturedFrame::new(
+            vec![0x00, 0xf8, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00],
+            1,
+            2,
+            4,
+        );
+        let mut output = vec![0; 2];
+
+        convert_rgb565_to_xrgb8888(&frame, &mut output).unwrap();
+
+        assert_eq!(output, vec![0x00ff0000, 0x000000ff]);
+    }
+
+    #[test]
+    fn conversion_rejects_short_output_buffer() {
+        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
+        let mut output = vec![0; 1];
+
+        let err = convert_rgb565_to_xrgb8888(&frame, &mut output).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "Output buffer has 1 pixels, expected at least 2"
+        );
     }
 }
