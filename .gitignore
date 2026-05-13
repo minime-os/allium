@@ -9,5 +9,4 @@ SDL2.dll
 .devenv.flake.nix
 devenv.lock
 local.mk
-/docs
 .agents/rules

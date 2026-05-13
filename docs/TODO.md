@@ -1,0 +1,1 @@
+- [ ] Add a "select for shift" tooltip in the Wi-Fi menu
