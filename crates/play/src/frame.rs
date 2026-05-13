@@ -43,6 +43,7 @@ pub fn encode_rgb565_ppm(frame: &CapturedFrame) -> Result<Vec<u8>> {
 }
 
 const XRGB8888_BYTES_PER_PIXEL: usize = 4;
+const BGRA8888_BYTES_PER_PIXEL: usize = 4;
 
 pub fn encode_xrgb8888_ppm(frame: &CapturedFrame) -> Result<Vec<u8>> {
     validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
@@ -119,23 +120,49 @@ pub fn copy_rgb565_to_rgb565(
 }
 
 #[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
-pub fn copy_xrgb8888_to_rgb565(
+pub fn copy_rgb565_to_bgra8888(
     frame: &CapturedFrame,
     output: &mut [u8],
     output_pitch: usize,
 ) -> Result<()> {
-    validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
-    validate_byte_output(frame, output, output_pitch, RGB565_BYTES_PER_PIXEL)?;
+    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
+    validate_byte_output(frame, output, output_pitch, BGRA8888_BYTES_PER_PIXEL)?;
 
     for y in 0..frame.height as usize {
         let row_start = y * frame.pitch;
         let output_row_start = y * output_pitch;
         for x in 0..frame.width as usize {
-            let pixel_start = row_start + x * XRGB8888_BYTES_PER_PIXEL;
-            let output_start = output_row_start + x * RGB565_BYTES_PER_PIXEL;
-            let bytes = &frame.data[pixel_start..pixel_start + XRGB8888_BYTES_PER_PIXEL];
-            let rgb565 = rgb_to_rgb565(bytes[2], bytes[1], bytes[0]).to_le_bytes();
-            output[output_start..output_start + RGB565_BYTES_PER_PIXEL].copy_from_slice(&rgb565);
+            let pixel_start = row_start + x * RGB565_BYTES_PER_PIXEL;
+            let output_start = output_row_start + x * BGRA8888_BYTES_PER_PIXEL;
+            let [r, g, b] = rgb565_to_rgb(&frame.data[pixel_start..pixel_start + 2]);
+            output[output_start] = b;
+            output[output_start + 1] = g;
+            output[output_start + 2] = r;
+            output[output_start + 3] = 0xff;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+pub fn copy_xrgb8888_to_bgra8888(
+    frame: &CapturedFrame,
+    output: &mut [u8],
+    output_pitch: usize,
+) -> Result<()> {
+    validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
+    validate_byte_output(frame, output, output_pitch, BGRA8888_BYTES_PER_PIXEL)?;
+
+    let row_bytes = frame.width as usize * BGRA8888_BYTES_PER_PIXEL;
+    for y in 0..frame.height as usize {
+        let source_start = y * frame.pitch;
+        let output_start = y * output_pitch;
+        output[output_start..output_start + row_bytes]
+            .copy_from_slice(&frame.data[source_start..source_start + row_bytes]);
+        for alpha in (output_start + 3..output_start + row_bytes).step_by(BGRA8888_BYTES_PER_PIXEL)
+        {
+            output[alpha] = 0xff;
         }
     }
 
@@ -225,11 +252,6 @@ fn rgb565_to_rgb(bytes: &[u8]) -> [u8; 3] {
 #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
 fn pack_xrgb8888(r: u8, g: u8, b: u8) -> u32 {
     (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
-}
-
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
-fn rgb_to_rgb565(r: u8, g: u8, b: u8) -> u16 {
-    ((u16::from(r) >> 3) << 11) | ((u16::from(g) >> 2) << 5) | (u16::from(b) >> 3)
 }
 
 // Scaling keeps white white and black black when moving from 5/6 bits to 8 bits.
@@ -356,21 +378,6 @@ mod tests {
     }
 
     #[test]
-    fn converts_xrgb8888_to_rgb565_framebuffer() {
-        let frame = CapturedFrame::new(
-            vec![0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0x00],
-            2,
-            1,
-            8,
-        );
-        let mut output = vec![0; 4];
-
-        copy_xrgb8888_to_rgb565(&frame, &mut output, 4).unwrap();
-
-        assert_eq!(output, vec![0x00, 0xf8, 0xe0, 0x07]);
-    }
-
-    #[test]
     fn framebuffer_copy_rejects_short_destination_pitch() {
         let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
         let mut output = vec![0; 2];
@@ -380,6 +387,37 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Destination pitch 2 is smaller than row size 4"
+        );
+    }
+
+    #[test]
+    fn converts_rgb565_to_bgra8888_framebuffer() {
+        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
+        let mut output = vec![0; 8];
+
+        copy_rgb565_to_bgra8888(&frame, &mut output, 8).unwrap();
+
+        assert_eq!(output, vec![0x00, 0x00, 0xff, 0xff, 0x00, 0xff, 0x00, 0xff]);
+    }
+
+    #[test]
+    fn copies_xrgb8888_to_bgra8888_framebuffer_with_pitch() {
+        let frame = CapturedFrame::new(
+            vec![0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0x00, 0x00],
+            1,
+            2,
+            4,
+        );
+        let mut output = vec![0; 16];
+
+        copy_xrgb8888_to_bgra8888(&frame, &mut output, 8).unwrap();
+
+        assert_eq!(
+            output,
+            vec![
+                0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0x00,
+                0x00, 0x00
+            ]
         );
     }
 }
