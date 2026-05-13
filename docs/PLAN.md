@@ -529,9 +529,9 @@ Scaling is separate from first visible video. Do not block 4B/4C on scale qualit
 
 ### Done when
 
-- [ ] Basic scaling works on both targets
-- [ ] Video abstraction exists only if it removes real duplication
-- [ ] Hot path avoids trait dispatch where practical
+- [x] Basic scaling works on both targets
+- [x] Video abstraction exists only if it removes real duplication
+- [x] Hot path avoids trait dispatch where practical
 
 ### Commit message suggestion
 

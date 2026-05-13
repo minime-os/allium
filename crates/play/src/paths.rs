@@ -53,6 +53,7 @@ mod tests {
             core_id: "nestopia".to_string(),
             dump_frame: None,
             frames: None,
+            scale: crate::scale::ScaleMode::Aspect,
         };
         let paths = PlayPaths::from_args(&args);
 

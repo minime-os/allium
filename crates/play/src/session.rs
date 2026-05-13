@@ -180,10 +180,19 @@ impl PlaySession {
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .context("Failed to install SIGTERM handler")?;
         #[cfg(feature = "simulator")]
-        let mut simulator_video =
-            SimulatorVideo::new(av_info.geometry.base_width, av_info.geometry.base_height)?;
+        let mut simulator_video = SimulatorVideo::new(
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.geometry.aspect_ratio,
+            self.args.scale,
+        )?;
         #[cfg(feature = "miyoo")]
-        let mut miyoo_video = MiyooVideo::new()?;
+        let mut miyoo_video = MiyooVideo::new(
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.geometry.aspect_ratio,
+            self.args.scale,
+        )?;
 
         info!(
             "Starting main emulation loop at {} fps{}",
@@ -452,6 +461,7 @@ mod tests {
             core_id: "nestopia".to_string(),
             dump_frame: None,
             frames: None,
+            scale: crate::scale::ScaleMode::Aspect,
         })
     }
 

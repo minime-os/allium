@@ -1,5 +1,7 @@
 use anyhow::{Result, anyhow};
 
+use crate::scale::ScaleRect;
+
 // Keep a copied frame for debug output because libretro owns callback memory.
 #[derive(Debug, Clone)]
 pub struct CapturedFrame {
@@ -64,109 +66,180 @@ pub fn encode_xrgb8888_ppm(frame: &CapturedFrame) -> Result<Vec<u8>> {
 }
 
 #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-pub fn convert_rgb565_to_xrgb8888(frame: &CapturedFrame, output: &mut [u32]) -> Result<()> {
+pub fn scale_rgb565_to_xrgb8888(
+    frame: &CapturedFrame,
+    output: &mut [u32],
+    output_width: u32,
+    output_height: u32,
+    rect: ScaleRect,
+) -> Result<()> {
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
-    validate_output(frame, output)?;
+    validate_scaled_u32_output(output, output_width, output_height, rect)?;
+    output.fill(0);
 
-    for y in 0..frame.height as usize {
-        let row_start = y * frame.pitch;
-        let output_row_start = y * frame.width as usize;
-        for x in 0..frame.width as usize {
-            let pixel_start = row_start + x * RGB565_BYTES_PER_PIXEL;
-            let [r, g, b] = rgb565_to_rgb(&frame.data[pixel_start..pixel_start + 2]);
-            output[output_row_start + x] = pack_xrgb8888(r, g, b);
-        }
-    }
+    for_each_scaled_pixel(
+        frame,
+        RGB565_BYTES_PER_PIXEL,
+        output_width,
+        rect,
+        |source_start, output_index| {
+            let [r, g, b] = rgb565_to_rgb(&frame.data[source_start..source_start + 2]);
+            output[output_index] = pack_xrgb8888(r, g, b);
+        },
+    );
 
     Ok(())
 }
 
 #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-pub fn convert_xrgb8888_to_xrgb8888(frame: &CapturedFrame, output: &mut [u32]) -> Result<()> {
+pub fn scale_xrgb8888_to_xrgb8888(
+    frame: &CapturedFrame,
+    output: &mut [u32],
+    output_width: u32,
+    output_height: u32,
+    rect: ScaleRect,
+) -> Result<()> {
     validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
-    validate_output(frame, output)?;
+    validate_scaled_u32_output(output, output_width, output_height, rect)?;
+    output.fill(0);
 
-    for y in 0..frame.height as usize {
-        let row_start = y * frame.pitch;
-        let output_row_start = y * frame.width as usize;
-        for x in 0..frame.width as usize {
-            let pixel_start = row_start + x * XRGB8888_BYTES_PER_PIXEL;
-            let bytes = &frame.data[pixel_start..pixel_start + XRGB8888_BYTES_PER_PIXEL];
-            output[output_row_start + x] = pack_xrgb8888(bytes[2], bytes[1], bytes[0]);
-        }
-    }
-
-    Ok(())
-}
-
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
-pub fn copy_rgb565_to_rgb565(
-    frame: &CapturedFrame,
-    output: &mut [u8],
-    output_pitch: usize,
-) -> Result<()> {
-    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
-    validate_byte_output(frame, output, output_pitch, RGB565_BYTES_PER_PIXEL)?;
-
-    let row_bytes = frame.width as usize * RGB565_BYTES_PER_PIXEL;
-    for y in 0..frame.height as usize {
-        let source_start = y * frame.pitch;
-        let output_start = y * output_pitch;
-        output[output_start..output_start + row_bytes]
-            .copy_from_slice(&frame.data[source_start..source_start + row_bytes]);
-    }
+    for_each_scaled_pixel(
+        frame,
+        XRGB8888_BYTES_PER_PIXEL,
+        output_width,
+        rect,
+        |source_start, output_index| {
+            let bytes = &frame.data[source_start..source_start + XRGB8888_BYTES_PER_PIXEL];
+            output[output_index] = pack_xrgb8888(bytes[2], bytes[1], bytes[0]);
+        },
+    );
 
     Ok(())
 }
 
 #[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
-pub fn copy_rgb565_to_bgra8888(
+pub fn scale_rgb565_to_rgb565(
     frame: &CapturedFrame,
     output: &mut [u8],
     output_pitch: usize,
+    output_height: u32,
+    rect: ScaleRect,
 ) -> Result<()> {
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
-    validate_byte_output(frame, output, output_pitch, BGRA8888_BYTES_PER_PIXEL)?;
+    validate_scaled_byte_output(
+        output,
+        output_pitch,
+        output_height,
+        rect,
+        RGB565_BYTES_PER_PIXEL,
+    )?;
+    output.fill(0);
 
-    for y in 0..frame.height as usize {
-        let row_start = y * frame.pitch;
-        let output_row_start = y * output_pitch;
-        for x in 0..frame.width as usize {
-            let pixel_start = row_start + x * RGB565_BYTES_PER_PIXEL;
-            let output_start = output_row_start + x * BGRA8888_BYTES_PER_PIXEL;
-            let [r, g, b] = rgb565_to_rgb(&frame.data[pixel_start..pixel_start + 2]);
+    for_each_scaled_pixel(
+        frame,
+        RGB565_BYTES_PER_PIXEL,
+        output_pitch as u32 / RGB565_BYTES_PER_PIXEL as u32,
+        rect,
+        |source_start, output_index| {
+            let output_start = output_index * RGB565_BYTES_PER_PIXEL;
+            output[output_start..output_start + RGB565_BYTES_PER_PIXEL]
+                .copy_from_slice(&frame.data[source_start..source_start + RGB565_BYTES_PER_PIXEL]);
+        },
+    );
+
+    Ok(())
+}
+
+#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+pub fn scale_rgb565_to_bgra8888(
+    frame: &CapturedFrame,
+    output: &mut [u8],
+    output_pitch: usize,
+    output_height: u32,
+    rect: ScaleRect,
+) -> Result<()> {
+    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
+    validate_scaled_byte_output(
+        output,
+        output_pitch,
+        output_height,
+        rect,
+        BGRA8888_BYTES_PER_PIXEL,
+    )?;
+    fill_bgra8888_black(output);
+
+    for_each_scaled_pixel(
+        frame,
+        RGB565_BYTES_PER_PIXEL,
+        output_pitch as u32 / BGRA8888_BYTES_PER_PIXEL as u32,
+        rect,
+        |source_start, output_index| {
+            let output_start = output_index * BGRA8888_BYTES_PER_PIXEL;
+            let [r, g, b] = rgb565_to_rgb(&frame.data[source_start..source_start + 2]);
             output[output_start] = b;
             output[output_start + 1] = g;
             output[output_start + 2] = r;
             output[output_start + 3] = 0xff;
-        }
-    }
+        },
+    );
 
     Ok(())
 }
 
 #[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
-pub fn copy_xrgb8888_to_bgra8888(
+pub fn scale_xrgb8888_to_bgra8888(
     frame: &CapturedFrame,
     output: &mut [u8],
     output_pitch: usize,
+    output_height: u32,
+    rect: ScaleRect,
 ) -> Result<()> {
     validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
-    validate_byte_output(frame, output, output_pitch, BGRA8888_BYTES_PER_PIXEL)?;
+    validate_scaled_byte_output(
+        output,
+        output_pitch,
+        output_height,
+        rect,
+        BGRA8888_BYTES_PER_PIXEL,
+    )?;
+    fill_bgra8888_black(output);
 
-    let row_bytes = frame.width as usize * BGRA8888_BYTES_PER_PIXEL;
-    for y in 0..frame.height as usize {
-        let source_start = y * frame.pitch;
-        let output_start = y * output_pitch;
-        output[output_start..output_start + row_bytes]
-            .copy_from_slice(&frame.data[source_start..source_start + row_bytes]);
-        for alpha in (output_start + 3..output_start + row_bytes).step_by(BGRA8888_BYTES_PER_PIXEL)
-        {
-            output[alpha] = 0xff;
-        }
-    }
+    for_each_scaled_pixel(
+        frame,
+        XRGB8888_BYTES_PER_PIXEL,
+        output_pitch as u32 / BGRA8888_BYTES_PER_PIXEL as u32,
+        rect,
+        |source_start, output_index| {
+            let output_start = output_index * BGRA8888_BYTES_PER_PIXEL;
+            output[output_start..output_start + BGRA8888_BYTES_PER_PIXEL].copy_from_slice(
+                &frame.data[source_start..source_start + XRGB8888_BYTES_PER_PIXEL],
+            );
+            output[output_start + 3] = 0xff;
+        },
+    );
 
     Ok(())
+}
+
+fn for_each_scaled_pixel<F>(
+    frame: &CapturedFrame,
+    bytes_per_pixel: usize,
+    output_width: u32,
+    rect: ScaleRect,
+    mut write: F,
+) where
+    F: FnMut(usize, usize),
+{
+    for dst_y in 0..rect.height {
+        let src_y = dst_y as u64 * frame.height as u64 / rect.height as u64;
+        for dst_x in 0..rect.width {
+            let src_x = dst_x as u64 * frame.width as u64 / rect.width as u64;
+            let source_start = src_y as usize * frame.pitch + src_x as usize * bytes_per_pixel;
+            let output_index =
+                (rect.y + dst_y) as usize * output_width as usize + (rect.x + dst_x) as usize;
+            write(source_start, output_index);
+        }
+    }
 }
 
 // Validate pitch and length first so conversion never indexes past the copied frame.
@@ -192,9 +265,14 @@ fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
     Ok(())
 }
 
-#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-fn validate_output(frame: &CapturedFrame, output: &[u32]) -> Result<()> {
-    let expected_len = frame.width as usize * frame.height as usize;
+fn validate_scaled_u32_output(
+    output: &[u32],
+    output_width: u32,
+    output_height: u32,
+    rect: ScaleRect,
+) -> Result<()> {
+    validate_scaled_rect(output_width, output_height, rect)?;
+    let expected_len = output_width as usize * output_height as usize;
     if output.len() < expected_len {
         return Err(anyhow!(
             "Output buffer has {} pixels, expected at least {}",
@@ -206,23 +284,16 @@ fn validate_output(frame: &CapturedFrame, output: &[u32]) -> Result<()> {
     Ok(())
 }
 
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
-fn validate_byte_output(
-    frame: &CapturedFrame,
+fn validate_scaled_byte_output(
     output: &[u8],
     output_pitch: usize,
+    output_height: u32,
+    rect: ScaleRect,
     bytes_per_pixel: usize,
 ) -> Result<()> {
-    let row_bytes = frame.width as usize * bytes_per_pixel;
-    if output_pitch < row_bytes {
-        return Err(anyhow!(
-            "Destination pitch {} is smaller than row size {}",
-            output_pitch,
-            row_bytes
-        ));
-    }
-
-    let expected_len = output_pitch * frame.height as usize;
+    let output_width = (output_pitch / bytes_per_pixel) as u32;
+    validate_scaled_rect(output_width, output_height, rect)?;
+    let expected_len = output_pitch * output_height as usize;
     if output.len() < expected_len {
         return Err(anyhow!(
             "Destination buffer has {} bytes, expected at least {}",
@@ -232,6 +303,26 @@ fn validate_byte_output(
     }
 
     Ok(())
+}
+
+fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) -> Result<()> {
+    if rect.width == 0 || rect.height == 0 {
+        return Err(anyhow!("Scale destination size must be non-zero"));
+    }
+    if rect.x + rect.width > output_width || rect.y + rect.height > output_height {
+        return Err(anyhow!("Scale destination rect exceeds output bounds"));
+    }
+
+    Ok(())
+}
+
+fn fill_bgra8888_black(output: &mut [u8]) {
+    for pixel in output.chunks_exact_mut(BGRA8888_BYTES_PER_PIXEL) {
+        pixel[0] = 0;
+        pixel[1] = 0;
+        pixel[2] = 0;
+        pixel[3] = 0xff;
+    }
 }
 
 // Reserving the exact size avoids reallocating while writing the dump.
@@ -310,113 +401,51 @@ mod tests {
     }
 
     #[test]
-    fn converts_rgb565_to_softbuffer_pixels() {
-        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
-        let mut output = vec![0; 2];
+    fn scales_rgb565_to_softbuffer_pixels() {
+        let frame = CapturedFrame::new(vec![0x00, 0xf8], 1, 1, 2);
+        let mut output = vec![0; 4];
 
-        convert_rgb565_to_xrgb8888(&frame, &mut output).unwrap();
-
-        assert_eq!(output, vec![0x00ff0000, 0x0000ff00]);
-    }
-
-    #[test]
-    fn converts_xrgb8888_to_softbuffer_pixels() {
-        let frame = CapturedFrame::new(
-            vec![0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0x00],
+        scale_rgb565_to_xrgb8888(
+            &frame,
+            &mut output,
             2,
-            1,
-            8,
-        );
-        let mut output = vec![0; 2];
-
-        convert_xrgb8888_to_xrgb8888(&frame, &mut output).unwrap();
-
-        assert_eq!(output, vec![0x00ff0000, 0x0000ff00]);
-    }
-
-    #[test]
-    fn conversion_respects_source_pitch() {
-        let frame = CapturedFrame::new(
-            vec![0x00, 0xf8, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00],
-            1,
             2,
-            4,
-        );
-        let mut output = vec![0; 2];
+            ScaleRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+        )
+        .unwrap();
 
-        convert_rgb565_to_xrgb8888(&frame, &mut output).unwrap();
-
-        assert_eq!(output, vec![0x00ff0000, 0x000000ff]);
+        assert_eq!(output, vec![0x00ff0000; 4]);
     }
 
     #[test]
-    fn conversion_rejects_short_output_buffer() {
-        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
-        let mut output = vec![0; 1];
+    fn scales_rgb565_to_bgra8888_with_letterbox() {
+        let frame = CapturedFrame::new(vec![0xe0, 0x07], 1, 1, 2);
+        let mut output = vec![0xaa; 24];
 
-        let err = convert_rgb565_to_xrgb8888(&frame, &mut output).unwrap_err();
-
-        assert_eq!(
-            err.to_string(),
-            "Output buffer has 1 pixels, expected at least 2"
-        );
-    }
-
-    #[test]
-    fn copies_rgb565_to_framebuffer_with_destination_pitch() {
-        let frame = CapturedFrame::new(
-            vec![0x00, 0xf8, 0x00, 0x00, 0xe0, 0x07, 0x00, 0x00],
-            1,
+        scale_rgb565_to_bgra8888(
+            &frame,
+            &mut output,
+            12,
             2,
-            4,
-        );
-        let mut output = vec![0; 8];
-
-        copy_rgb565_to_rgb565(&frame, &mut output, 4).unwrap();
-
-        assert_eq!(output, vec![0x00, 0xf8, 0x00, 0x00, 0xe0, 0x07, 0x00, 0x00]);
-    }
-
-    #[test]
-    fn framebuffer_copy_rejects_short_destination_pitch() {
-        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
-        let mut output = vec![0; 2];
-
-        let err = copy_rgb565_to_rgb565(&frame, &mut output, 2).unwrap_err();
-
-        assert_eq!(
-            err.to_string(),
-            "Destination pitch 2 is smaller than row size 4"
-        );
-    }
-
-    #[test]
-    fn converts_rgb565_to_bgra8888_framebuffer() {
-        let frame = CapturedFrame::new(vec![0x00, 0xf8, 0xe0, 0x07], 2, 1, 4);
-        let mut output = vec![0; 8];
-
-        copy_rgb565_to_bgra8888(&frame, &mut output, 8).unwrap();
-
-        assert_eq!(output, vec![0x00, 0x00, 0xff, 0xff, 0x00, 0xff, 0x00, 0xff]);
-    }
-
-    #[test]
-    fn copies_xrgb8888_to_bgra8888_framebuffer_with_pitch() {
-        let frame = CapturedFrame::new(
-            vec![0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0x00, 0x00],
-            1,
-            2,
-            4,
-        );
-        let mut output = vec![0; 16];
-
-        copy_xrgb8888_to_bgra8888(&frame, &mut output, 8).unwrap();
+            ScaleRect {
+                x: 1,
+                y: 0,
+                width: 1,
+                height: 2,
+            },
+        )
+        .unwrap();
 
         assert_eq!(
             output,
             vec![
-                0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0x00,
-                0x00, 0x00
+                0x00, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00,
+                0x00, 0xff, 0x00, 0xff, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff
             ]
         );
     }

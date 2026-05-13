@@ -1,6 +1,7 @@
 use crate::frame::{
-    CapturedFrame, copy_rgb565_to_bgra8888, copy_rgb565_to_rgb565, copy_xrgb8888_to_bgra8888,
+    CapturedFrame, scale_rgb565_to_bgra8888, scale_rgb565_to_rgb565, scale_xrgb8888_to_bgra8888,
 };
+use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
 use anyhow::{Result, anyhow};
 use framebuffer::Framebuffer;
 use log::info;
@@ -12,7 +13,9 @@ const BGRA8888_BITS_PER_PIXEL: u32 = 32;
 pub struct MiyooVideo {
     fb: Framebuffer,
     pitch: usize,
+    height: u32,
     format: MiyooFramebufferFormat,
+    rect: ScaleRect,
 }
 
 #[derive(Clone, Copy)]
@@ -28,7 +31,12 @@ pub enum MiyooPixelFormat {
 }
 
 impl MiyooVideo {
-    pub fn new() -> Result<Self> {
+    pub fn new(
+        source_width: u32,
+        source_height: u32,
+        aspect_ratio: f32,
+        scale: ScaleMode,
+    ) -> Result<Self> {
         let fb = Framebuffer::new(FRAMEBUFFER_PATH)?;
         let format = match fb.var_screen_info.bits_per_pixel {
             RGB565_BITS_PER_PIXEL => MiyooFramebufferFormat::Rgb565,
@@ -42,30 +50,59 @@ impl MiyooVideo {
         };
 
         let pitch = fb.fix_screen_info.line_length as usize;
+        let width = fb.var_screen_info.xres;
+        let height = fb.var_screen_info.yres;
+        let rect = calculate_scale_rect(
+            scale,
+            source_width,
+            source_height,
+            aspect_ratio,
+            width,
+            height,
+        )?;
         info!(
             "Miyoo framebuffer initialized at {}x{} pitch={} bpp={}",
-            fb.var_screen_info.xres,
-            fb.var_screen_info.yres,
-            pitch,
-            fb.var_screen_info.bits_per_pixel
+            width, height, pitch, fb.var_screen_info.bits_per_pixel
         );
 
-        Ok(Self { fb, pitch, format })
+        Ok(Self {
+            fb,
+            pitch,
+            height,
+            format,
+            rect,
+        })
     }
 
     pub fn present(&mut self, frame: &CapturedFrame, pixel_format: MiyooPixelFormat) -> Result<()> {
         match (self.format, pixel_format) {
-            (MiyooFramebufferFormat::Rgb565, MiyooPixelFormat::Rgb565) => {
-                copy_rgb565_to_rgb565(frame, &mut self.fb.frame, self.pitch)
-            }
+            (MiyooFramebufferFormat::Rgb565, MiyooPixelFormat::Rgb565) => scale_rgb565_to_rgb565(
+                frame,
+                &mut self.fb.frame,
+                self.pitch,
+                self.height,
+                self.rect,
+            ),
             (MiyooFramebufferFormat::Rgb565, MiyooPixelFormat::Xrgb8888) => Err(anyhow!(
                 "Miyoo 16-bit framebuffer does not support XRGB8888 frames"
             )),
             (MiyooFramebufferFormat::Bgra8888, MiyooPixelFormat::Rgb565) => {
-                copy_rgb565_to_bgra8888(frame, &mut self.fb.frame, self.pitch)
+                scale_rgb565_to_bgra8888(
+                    frame,
+                    &mut self.fb.frame,
+                    self.pitch,
+                    self.height,
+                    self.rect,
+                )
             }
             (MiyooFramebufferFormat::Bgra8888, MiyooPixelFormat::Xrgb8888) => {
-                copy_xrgb8888_to_bgra8888(frame, &mut self.fb.frame, self.pitch)
+                scale_xrgb8888_to_bgra8888(
+                    frame,
+                    &mut self.fb.frame,
+                    self.pitch,
+                    self.height,
+                    self.rect,
+                )
             }
         }
     }

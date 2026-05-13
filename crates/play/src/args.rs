@@ -1,6 +1,8 @@
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
 
+use crate::scale::ScaleMode;
+
 // Play is launched by Allium, so the CLI is a small contract between processes.
 #[derive(Debug, PartialEq)]
 pub struct Args {
@@ -9,6 +11,7 @@ pub struct Args {
     pub core_id: String,
     pub dump_frame: Option<PathBuf>,
     pub frames: Option<u64>,
+    pub scale: ScaleMode,
 }
 
 // The list of flags Play accepts.
@@ -18,6 +21,7 @@ enum Flag {
     CoreId,
     DumpFrame,
     Frames,
+    Scale,
 }
 
 impl Flag {
@@ -28,6 +32,7 @@ impl Flag {
             "--core-id" => Ok(Self::CoreId),
             "--dump-frame" => Ok(Self::DumpFrame),
             "--frames" => Ok(Self::Frames),
+            "--scale" => Ok(Self::Scale),
             _ => Err(anyhow!("Unknown argument: {}", raw)),
         }
     }
@@ -50,6 +55,7 @@ impl Args {
         let mut core_id = None;
         let mut dump_frame = None;
         let mut frames = None;
+        let mut scale = None;
 
         // Raw args come in flag/value pairs, like "--rom game.nes".
         while let Some(raw_arg) = raw_args.next() {
@@ -73,6 +79,9 @@ impl Args {
                 Flag::Frames => {
                     frames = Some(parse_frames(&value)?);
                 }
+                Flag::Scale => {
+                    scale = Some(ScaleMode::parse(&value)?);
+                }
             }
         }
 
@@ -83,6 +92,7 @@ impl Args {
             core_id: core_id.ok_or_else(|| anyhow!("Missing required argument: --core-id"))?,
             dump_frame, // Optional.
             frames,     // Optional.
+            scale: scale.unwrap_or(ScaleMode::Aspect),
         })
     }
 }
@@ -128,6 +138,7 @@ mod tests {
         assert_eq!(args.rom, PathBuf::from("test.nes"));
         assert_eq!(args.core_path, PathBuf::from("nes_libretro.so"));
         assert_eq!(args.core_id, "nes");
+        assert_eq!(args.scale, ScaleMode::Aspect);
     }
 
     #[test]
@@ -263,6 +274,60 @@ mod tests {
         assert_eq!(
             args.unwrap_err().to_string(),
             "--frames must be greater than 0"
+        );
+    }
+
+    #[test]
+    fn test_parse_scale_native() {
+        let args = Args::parse_from(vec![
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--scale",
+            "native",
+        ])
+        .unwrap();
+
+        assert_eq!(args.scale, ScaleMode::Native);
+    }
+
+    #[test]
+    fn test_parse_scale_fullscreen() {
+        let args = Args::parse_from(vec![
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--scale",
+            "fullscreen",
+        ])
+        .unwrap();
+
+        assert_eq!(args.scale, ScaleMode::Fullscreen);
+    }
+
+    #[test]
+    fn test_parse_invalid_scale() {
+        let args = Args::parse_from(vec![
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--scale",
+            "wide",
+        ]);
+
+        assert!(args.is_err());
+        assert_eq!(
+            args.unwrap_err().to_string(),
+            "--scale must be native, aspect, or fullscreen"
         );
     }
 }

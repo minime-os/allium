@@ -10,6 +10,7 @@ mod logs;
 #[cfg(feature = "miyoo")]
 mod miyoo_video;
 mod paths;
+mod scale;
 mod session;
 #[cfg(feature = "simulator")]
 mod simulator_video;

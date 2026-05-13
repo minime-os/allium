@@ -1,4 +1,5 @@
-use crate::frame::{CapturedFrame, convert_rgb565_to_xrgb8888, convert_xrgb8888_to_xrgb8888};
+use crate::frame::{CapturedFrame, scale_rgb565_to_xrgb8888, scale_xrgb8888_to_xrgb8888};
+use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
 use anyhow::{Context, Result, anyhow};
 use log::info;
 use softbuffer::Surface;
@@ -19,6 +20,7 @@ pub struct SimulatorVideo {
     event_loop: EventLoop<()>,
     app: SimulatorVideoApp,
     pixels: Vec<u32>,
+    rect: ScaleRect,
 }
 
 struct SimulatorVideoApp {
@@ -36,9 +38,26 @@ pub enum SimulatorPixelFormat {
 }
 
 impl SimulatorVideo {
-    pub fn new(width: u32, height: u32) -> Result<Self> {
-        let width = NonZeroU32::new(width).context("Simulator video width must be non-zero")?;
-        let height = NonZeroU32::new(height).context("Simulator video height must be non-zero")?;
+    pub fn new(
+        source_width: u32,
+        source_height: u32,
+        aspect_ratio: f32,
+        scale: ScaleMode,
+    ) -> Result<Self> {
+        let output_width = simulator_output_width();
+        let output_height = simulator_output_height();
+        let width =
+            NonZeroU32::new(output_width).context("Simulator video width must be non-zero")?;
+        let height =
+            NonZeroU32::new(output_height).context("Simulator video height must be non-zero")?;
+        let rect = calculate_scale_rect(
+            scale,
+            source_width,
+            source_height,
+            aspect_ratio,
+            output_width,
+            output_height,
+        )?;
         let event_loop = EventLoop::new()?;
         let pixels = vec![0; width.get() as usize * height.get() as usize];
         let mut video = Self {
@@ -51,6 +70,7 @@ impl SimulatorVideo {
                 closed: false,
             },
             pixels,
+            rect,
         };
 
         video.pump_events()?;
@@ -69,10 +89,20 @@ impl SimulatorVideo {
         }
 
         match format {
-            SimulatorPixelFormat::Rgb565 => convert_rgb565_to_xrgb8888(frame, &mut self.pixels)?,
-            SimulatorPixelFormat::Xrgb8888 => {
-                convert_xrgb8888_to_xrgb8888(frame, &mut self.pixels)?
-            }
+            SimulatorPixelFormat::Rgb565 => scale_rgb565_to_xrgb8888(
+                frame,
+                &mut self.pixels,
+                self.app.width.get(),
+                self.app.height.get(),
+                self.rect,
+            )?,
+            SimulatorPixelFormat::Xrgb8888 => scale_xrgb8888_to_xrgb8888(
+                frame,
+                &mut self.pixels,
+                self.app.width.get(),
+                self.app.height.get(),
+                self.rect,
+            )?,
         }
 
         let surface = self
@@ -112,6 +142,20 @@ impl SimulatorVideo {
 
         Ok(())
     }
+}
+
+fn simulator_output_width() -> u32 {
+    std::env::var("WIDTH")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(752)
+}
+
+fn simulator_output_height() -> u32 {
+    std::env::var("HEIGHT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(560)
 }
 
 impl ApplicationHandler for SimulatorVideoApp {
