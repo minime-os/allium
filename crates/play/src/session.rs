@@ -4,12 +4,13 @@ use crate::core::Core;
 use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
 use crate::libretro_sys::*;
 use crate::paths::PlayPaths;
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use log::{debug, info};
 use std::ffi::CString;
 use std::fs;
 use std::os::raw::{c_char, c_uint, c_void};
 use std::ptr;
+use std::time::{Duration, Instant};
 
 // One session owns the mutable runtime state so callbacks have one place to land.
 pub struct PlaySession {
@@ -19,6 +20,7 @@ pub struct PlaySession {
     rom_data: Option<Vec<u8>>,
     captured_frame: Option<CapturedFrame>,
     pixel_format: Option<FramePixelFormat>,
+    av_info: Option<retro_system_av_info>,
     system_dir: CString,
     save_dir: CString,
 }
@@ -46,6 +48,7 @@ impl PlaySession {
             rom_data: None,
             captured_frame: None,
             pixel_format: None,
+            av_info: None,
             system_dir,
             save_dir,
         }
@@ -84,8 +87,10 @@ impl PlaySession {
             }
             self.dump_captured_frame()?;
         } else {
-            self.start_main_loop()?;
+            self.start_main_loop().await?;
         }
+
+        self.unload_game();
 
         Ok(())
     }
@@ -149,14 +154,85 @@ impl PlaySession {
             av_info.timing.fps,
             av_info.timing.sample_rate
         );
+        self.av_info = Some(av_info);
 
         Ok(())
     }
 
-    // This stays boring until video/audio/input timing exists.
-    fn start_main_loop(&self) -> Result<()> {
-        info!("(Skeleton) Starting main emulation loop");
+    // One retro_run call advances one emulated frame; this keeps that cadence near core FPS.
+    async fn start_main_loop(&self) -> Result<()> {
+        let core = self
+            .core
+            .as_ref()
+            .ok_or_else(|| anyhow!("Core not loaded"))?;
+        let av_info = self
+            .av_info
+            .as_ref()
+            .ok_or_else(|| anyhow!("AV info not loaded"))?;
+        let target_fps = av_info.timing.fps;
+        let frame_interval = frame_interval(target_fps)?;
+        let mut frames_run = 0u64;
+        let started_at = Instant::now();
+        let mut next_frame_at = started_at;
+        let shutdown_reason;
+        let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
+        #[cfg(unix)]
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .context("Failed to install SIGTERM handler")?;
+
+        info!(
+            "Starting main emulation loop at {} fps{}",
+            target_fps,
+            self.args
+                .frames
+                .map(|frames| format!(" for {} frames", frames))
+                .unwrap_or_else(|| " until shutdown".to_string())
+        );
+
+        loop {
+            if self.args.frames == Some(frames_run) {
+                shutdown_reason = "frame cap reached";
+                break;
+            }
+
+            core.run();
+            frames_run += 1;
+            next_frame_at += frame_interval;
+
+            let sleep_until = tokio::time::Instant::from_std(next_frame_at);
+            let shutdown_requested = {
+                #[cfg(unix)]
+                {
+                    wait_for_next_frame(sleep_until, &mut ctrl_c, &mut sigterm).await
+                }
+                #[cfg(not(unix))]
+                {
+                    wait_for_next_frame(sleep_until, &mut ctrl_c).await
+                }
+            };
+            if shutdown_requested {
+                shutdown_reason = "signal received";
+                break;
+            }
+        }
+
+        let elapsed = started_at.elapsed();
+        let avg_frame_time = if frames_run == 0 {
+            Duration::ZERO
+        } else {
+            elapsed.div_f64(frames_run as f64)
+        };
+        info!(
+            "Frame loop stopped: reason={}, frames={}, elapsed={:?}, avg_frame_time={:?}, target_fps={}",
+            shutdown_reason, frames_run, elapsed, avg_frame_time, target_fps
+        );
         Ok(())
+    }
+
+    fn unload_game(&mut self) {
+        if let Some(core) = self.core.take() {
+            core.unload_game();
+        }
     }
 
     // A one-frame dump proves callbacks and pixel conversion before real video exists.
@@ -179,6 +255,44 @@ impl PlaySession {
         fs::write(path, ppm_data)?;
         info!("Frame dumped to {:?}", path);
         Ok(())
+    }
+}
+
+fn frame_interval(fps: f64) -> Result<Duration> {
+    if !fps.is_finite() || fps <= 0.0 {
+        return Err(anyhow!("Core reported invalid FPS: {}", fps));
+    }
+
+    Ok(Duration::from_secs_f64(1.0 / fps))
+}
+
+#[cfg(unix)]
+async fn wait_for_next_frame<F>(
+    deadline: tokio::time::Instant,
+    ctrl_c: &mut std::pin::Pin<&mut F>,
+    sigterm: &mut tokio::signal::unix::Signal,
+) -> bool
+where
+    F: std::future::Future<Output = std::io::Result<()>>,
+{
+    tokio::select! {
+        _ = tokio::time::sleep_until(deadline) => false,
+        _ = ctrl_c.as_mut() => true,
+        _ = sigterm.recv() => true,
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_next_frame<F>(
+    deadline: tokio::time::Instant,
+    ctrl_c: &mut std::pin::Pin<&mut F>,
+) -> bool
+where
+    F: std::future::Future<Output = std::io::Result<()>>,
+{
+    tokio::select! {
+        _ = tokio::time::sleep_until(deadline) => false,
+        _ = ctrl_c.as_mut() => true,
     }
 }
 
@@ -274,9 +388,7 @@ impl PlaySession {
 // Unload content before deinit so the core can release game-specific state cleanly.
 impl Drop for PlaySession {
     fn drop(&mut self) {
-        if let Some(core) = &self.core {
-            core.unload_game();
-        }
+        self.unload_game();
     }
 }
 
@@ -286,6 +398,7 @@ mod tests {
     use std::ffi::CStr;
     use std::os::raw::c_char;
     use std::path::PathBuf;
+    use std::time::Duration;
 
     fn test_session() -> PlaySession {
         PlaySession::new(Args {
@@ -293,7 +406,29 @@ mod tests {
             core_path: PathBuf::from("nestopia_libretro.dylib"),
             core_id: "nestopia".to_string(),
             dump_frame: None,
+            frames: None,
         })
+    }
+
+    #[test]
+    fn frame_interval_uses_core_fps() {
+        let interval = frame_interval(60.0).unwrap();
+
+        assert_eq!(interval, Duration::from_nanos(16_666_667));
+    }
+
+    #[test]
+    fn frame_interval_rejects_zero_fps() {
+        let err = frame_interval(0.0).unwrap_err();
+
+        assert_eq!(err.to_string(), "Core reported invalid FPS: 0");
+    }
+
+    #[test]
+    fn frame_interval_rejects_nan_fps() {
+        let err = frame_interval(f64::NAN).unwrap_err();
+
+        assert_eq!(err.to_string(), "Core reported invalid FPS: NaN");
     }
 
     #[test]

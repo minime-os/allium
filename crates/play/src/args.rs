@@ -8,6 +8,7 @@ pub struct Args {
     pub core_path: PathBuf,
     pub core_id: String,
     pub dump_frame: Option<PathBuf>,
+    pub frames: Option<u64>,
 }
 
 // The list of flags Play accepts.
@@ -16,6 +17,7 @@ enum Flag {
     Core,
     CoreId,
     DumpFrame,
+    Frames,
 }
 
 impl Flag {
@@ -25,6 +27,7 @@ impl Flag {
             "--core" => Ok(Self::Core),
             "--core-id" => Ok(Self::CoreId),
             "--dump-frame" => Ok(Self::DumpFrame),
+            "--frames" => Ok(Self::Frames),
             _ => Err(anyhow!("Unknown argument: {}", raw)),
         }
     }
@@ -46,6 +49,7 @@ impl Args {
         let mut core_path = None;
         let mut core_id = None;
         let mut dump_frame = None;
+        let mut frames = None;
 
         // Raw args come in flag/value pairs, like "--rom game.nes".
         while let Some(raw_arg) = raw_args.next() {
@@ -66,6 +70,9 @@ impl Args {
                 Flag::DumpFrame => {
                     dump_frame = Some(PathBuf::from(value));
                 }
+                Flag::Frames => {
+                    frames = Some(parse_frames(&value)?);
+                }
             }
         }
 
@@ -75,6 +82,7 @@ impl Args {
             core_path: core_path.ok_or_else(|| anyhow!("Missing required argument: --core"))?,
             core_id: core_id.ok_or_else(|| anyhow!("Missing required argument: --core-id"))?,
             dump_frame, // Optional.
+            frames,     // Optional.
         })
     }
 }
@@ -88,6 +96,17 @@ where
     iter.next()
         .map(Into::into)
         .ok_or_else(|| anyhow!("Missing value for {}", flag))
+}
+
+fn parse_frames(value: &str) -> Result<u64> {
+    let frames = value
+        .parse::<u64>()
+        .map_err(|_| anyhow!("--frames must be a positive integer"))?;
+    if frames == 0 {
+        return Err(anyhow!("--frames must be greater than 0"));
+    }
+
+    Ok(frames)
 }
 
 // These tests show which arguments Play accepts and rejects.
@@ -172,5 +191,78 @@ mod tests {
         .unwrap();
 
         assert_eq!(args.dump_frame, Some(PathBuf::from("frame.ppm")));
+    }
+
+    #[test]
+    fn test_parse_frames() {
+        let args = Args::parse_from(vec![
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--frames",
+            "600",
+        ])
+        .unwrap();
+
+        assert_eq!(args.frames, Some(600));
+    }
+
+    #[test]
+    fn test_parse_missing_frames_value() {
+        let args = Args::parse_from(vec![
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--frames",
+        ]);
+
+        assert!(args.is_err());
+        assert_eq!(args.unwrap_err().to_string(), "Missing value for --frames");
+    }
+
+    #[test]
+    fn test_parse_non_numeric_frames() {
+        let args = Args::parse_from(vec![
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--frames",
+            "nope",
+        ]);
+
+        assert!(args.is_err());
+        assert_eq!(
+            args.unwrap_err().to_string(),
+            "--frames must be a positive integer"
+        );
+    }
+
+    #[test]
+    fn test_parse_zero_frames() {
+        let args = Args::parse_from(vec![
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--frames",
+            "0",
+        ]);
+
+        assert!(args.is_err());
+        assert_eq!(
+            args.unwrap_err().to_string(),
+            "--frames must be greater than 0"
+        );
     }
 }

@@ -52,6 +52,7 @@ mod tests {
             core_path: PathBuf::from("nestopia.so"),
             core_id: "nestopia".to_string(),
             dump_frame: None,
+            frames: None,
         };
         let paths = PlayPaths::from_args(&args);
 

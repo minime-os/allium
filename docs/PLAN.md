@@ -420,9 +420,9 @@ Then call `retro_unload_game`, clear the active-session pointer, drop state, and
 
 ### Done when
 
-- [ ] Capped frame loop works
-- [ ] Forever loop exits cleanly on quit
-- [ ] Frame timing is logged
+- [x] Capped frame loop works
+- [x] Forever loop exits cleanly on quit
+- [x] Frame timing is logged
 
 ### Commit message suggestion
 
