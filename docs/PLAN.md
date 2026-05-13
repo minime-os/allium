@@ -578,10 +578,10 @@ Extract an audio backend seam only after both implementations work and share eno
 
 ### Done when
 
-- [ ] Audio plays in both sim and hw
-- [ ] Ring buffer separates libretro callback from output
-- [ ] No resampling hidden in v1
-- [ ] Fast-forward mutes audio
+- [x] Audio plays in both sim and hw
+- [x] Ring buffer separates libretro callback from output
+- [x] No resampling hidden in v1
+- [x] Fast-forward mutes audio
 
 ### Commit message suggestion
 

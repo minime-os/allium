@@ -1,4 +1,5 @@
 use crate::args::Args;
+use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::callbacks::{self, LibretroCallbacks};
 use crate::core::Core;
 use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
@@ -25,6 +26,8 @@ pub struct PlaySession {
     captured_frame: Option<CapturedFrame>,
     pixel_format: Option<FramePixelFormat>,
     av_info: Option<retro_system_av_info>,
+    audio_producer: Option<AudioProducer>,
+    fast_forwarding: bool,
     system_dir: CString,
     save_dir: CString,
 }
@@ -53,6 +56,8 @@ impl PlaySession {
             captured_frame: None,
             pixel_format: None,
             av_info: None,
+            audio_producer: None,
+            fast_forwarding: false,
             system_dir,
             save_dir,
         }
@@ -170,6 +175,7 @@ impl PlaySession {
             .as_ref()
             .ok_or_else(|| anyhow!("AV info not loaded"))?;
         let target_fps = av_info.timing.fps;
+        let audio_sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
         let frame_interval = frame_interval(target_fps)?;
         let mut frames_run = 0u64;
         let started_at = Instant::now();
@@ -193,6 +199,13 @@ impl PlaySession {
             av_info.geometry.aspect_ratio,
             self.args.scale,
         )?;
+        let (mut audio_producer, audio_consumer) = AudioQueue::for_sample_rate(audio_sample_rate);
+        audio_producer.set_muted(self.fast_forwarding);
+        self.audio_producer = Some(audio_producer);
+        #[cfg(feature = "simulator")]
+        let _audio = crate::audio::SimulatorAudio::new(audio_sample_rate, audio_consumer)?;
+        #[cfg(feature = "miyoo")]
+        let _audio = crate::audio::MiyooAudio::new(audio_sample_rate, audio_consumer)?;
 
         info!(
             "Starting main emulation loop at {} fps{}",
@@ -250,6 +263,7 @@ impl PlaySession {
             "Frame loop stopped: reason={}, frames={}, elapsed={:?}, avg_frame_time={:?}, target_fps={}",
             shutdown_reason, frames_run, elapsed, avg_frame_time, target_fps
         );
+        self.audio_producer = None;
         Ok(())
     }
 
@@ -371,6 +385,7 @@ impl LibretroCallbacks for PlaySession {
             }
             RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.system_dir),
             RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => self.write_env_path(data, &self.save_dir),
+            RETRO_ENVIRONMENT_GET_FASTFORWARDING => self.write_env_bool(data, self.fast_forwarding),
             _ => {
                 debug!("Unsupported environment command: {}", cmd);
                 false
@@ -407,9 +422,20 @@ impl LibretroCallbacks for PlaySession {
         }
     }
 
-    fn on_audio_sample(&mut self, _left: i16, _right: i16) {}
+    fn on_audio_sample(&mut self, left: i16, right: i16) {
+        if let Some(producer) = &mut self.audio_producer {
+            producer.push_frame(left, right);
+        }
+    }
 
-    fn on_audio_sample_batch(&mut self, _data: *const i16, frames: usize) -> usize {
+    fn on_audio_sample_batch(&mut self, data: *const i16, frames: usize) -> usize {
+        if let Some(producer) = &mut self.audio_producer {
+            if !data.is_null() {
+                let samples = unsafe { std::slice::from_raw_parts(data, frames * 2) };
+                producer.push_frames(samples, frames);
+            }
+        }
+
         frames
     }
 
@@ -434,6 +460,17 @@ impl PlaySession {
 
         unsafe {
             *(data as *mut *const c_char) = path.as_ptr();
+        }
+        true
+    }
+
+    fn write_env_bool(&self, data: *mut c_void, value: bool) -> bool {
+        if data.is_null() {
+            return false;
+        }
+
+        unsafe {
+            *(data as *mut bool) = value;
         }
         true
     }

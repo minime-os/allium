@@ -2,6 +2,7 @@
 compile_error!("pick `simulator` or `miyoo` feature");
 
 mod args;
+mod audio;
 mod callbacks;
 mod core;
 mod frame;
