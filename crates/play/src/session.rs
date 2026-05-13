@@ -1,14 +1,14 @@
 use crate::args::Args;
 use crate::callbacks::{self, LibretroCallbacks};
 use crate::core::Core;
-use crate::frame::{CapturedFrame, encode_rgb565_ppm};
+use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
 use crate::libretro_sys::*;
 use crate::paths::PlayPaths;
 use anyhow::{Result, anyhow};
-use log::info;
+use log::{debug, info};
 use std::ffi::CString;
 use std::fs;
-use std::os::raw::{c_uint, c_void};
+use std::os::raw::{c_char, c_uint, c_void};
 use std::ptr;
 
 // One session owns the mutable runtime state so callbacks have one place to land.
@@ -18,20 +18,36 @@ pub struct PlaySession {
     core: Option<Core>,
     rom_data: Option<Vec<u8>>,
     captured_frame: Option<CapturedFrame>,
-    rgb565_enabled: bool,
+    pixel_format: Option<FramePixelFormat>,
+    system_dir: CString,
+    save_dir: CString,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FramePixelFormat {
+    Rgb565,
+    Xrgb8888,
+}
+
+const DUMP_WARMUP_FRAMES: usize = 60;
 
 impl PlaySession {
     // Resolve paths up front so later stages do not repeat path policy.
     pub fn new(args: Args) -> Self {
         let paths = PlayPaths::from_args(&args);
+        let system_dir = CString::new(paths.config_dir.to_string_lossy().into_owned())
+            .expect("Play system dir must not contain NUL");
+        let save_dir = CString::new(paths.save_dir.to_string_lossy().into_owned())
+            .expect("Play save dir must not contain NUL");
         Self {
             args,
             paths,
             core: None,
             rom_data: None,
             captured_frame: None,
-            rgb565_enabled: false,
+            pixel_format: None,
+            system_dir,
+            save_dir,
         }
     }
 
@@ -60,9 +76,11 @@ impl PlaySession {
         self.load_game()?;
 
         if self.args.dump_frame.is_some() {
-            info!("Running one frame for dump...");
+            info!("Running {} warmup frames for dump...", DUMP_WARMUP_FRAMES);
             if let Some(core) = &self.core {
-                core.run();
+                for _ in 0..DUMP_WARMUP_FRAMES {
+                    core.run();
+                }
             }
             self.dump_captured_frame()?;
         } else {
@@ -90,6 +108,9 @@ impl PlaySession {
 
     // Some cores borrow the ROM buffer after retro_load_game, so the Vec lives in the session.
     fn load_game(&mut self) -> Result<()> {
+        fs::create_dir_all(&self.paths.config_dir)?;
+        fs::create_dir_all(&self.paths.save_dir)?;
+
         let core = self
             .core
             .as_ref()
@@ -149,11 +170,11 @@ impl PlaySession {
             .captured_frame
             .as_ref()
             .ok_or_else(|| anyhow!("No frame captured"))?;
-        if !self.rgb565_enabled {
-            return Err(anyhow!("Frame dump requires RGB565 pixel format"));
-        }
-
-        let ppm_data = encode_rgb565_ppm(frame)?;
+        let ppm_data = match self.pixel_format {
+            Some(FramePixelFormat::Rgb565) => encode_rgb565_ppm(frame)?,
+            Some(FramePixelFormat::Xrgb8888) => encode_xrgb8888_ppm(frame)?,
+            None => return Err(anyhow!("Frame dump requires a supported pixel format")),
+        };
 
         fs::write(path, ppm_data)?;
         info!("Frame dumped to {:?}", path);
@@ -168,15 +189,24 @@ impl LibretroCallbacks for PlaySession {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => {
                 let format = unsafe { *(data as *const retro_pixel_format) };
                 if format == retro_pixel_format_RETRO_PIXEL_FORMAT_RGB565 {
-                    self.rgb565_enabled = true;
+                    self.pixel_format = Some(FramePixelFormat::Rgb565);
                     info!("Core set pixel format: RGB565");
+                    true
+                } else if format == retro_pixel_format_RETRO_PIXEL_FORMAT_XRGB8888 {
+                    self.pixel_format = Some(FramePixelFormat::Xrgb8888);
+                    info!("Core set pixel format: XRGB8888");
                     true
                 } else {
                     info!("Unsupported pixel format: {}", format);
                     false
                 }
             }
-            _ => false,
+            RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.system_dir),
+            RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => self.write_env_path(data, &self.save_dir),
+            _ => {
+                debug!("Unsupported environment command: {}", cmd);
+                false
+            }
         }
     }
 
@@ -193,11 +223,20 @@ impl LibretroCallbacks for PlaySession {
         }
 
         let size = pitch * height as usize;
-        let mut buffer = vec![0u8; size];
-        unsafe {
-            ptr::copy_nonoverlapping(data as *const u8, buffer.as_mut_ptr(), size);
+        let frame = self
+            .captured_frame
+            .get_or_insert_with(|| CapturedFrame::new(vec![0u8; size], width, height, pitch));
+
+        if frame.data.len() != size {
+            frame.data.resize(size, 0);
         }
-        self.captured_frame = Some(CapturedFrame::new(buffer, width, height, pitch));
+
+        frame.width = width;
+        frame.height = height;
+        frame.pitch = pitch;
+        unsafe {
+            ptr::copy_nonoverlapping(data as *const u8, frame.data.as_mut_ptr(), size);
+        }
     }
 
     fn on_audio_sample(&mut self, _left: i16, _right: i16) {}
@@ -219,11 +258,106 @@ impl LibretroCallbacks for PlaySession {
     }
 }
 
+impl PlaySession {
+    fn write_env_path(&self, data: *mut c_void, path: &CString) -> bool {
+        if data.is_null() {
+            return false;
+        }
+
+        unsafe {
+            *(data as *mut *const c_char) = path.as_ptr();
+        }
+        true
+    }
+}
+
 // Unload content before deinit so the core can release game-specific state cleanly.
 impl Drop for PlaySession {
     fn drop(&mut self) {
         if let Some(core) = &self.core {
             core.unload_game();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CStr;
+    use std::os::raw::c_char;
+    use std::path::PathBuf;
+
+    fn test_session() -> PlaySession {
+        PlaySession::new(Args {
+            rom: PathBuf::from("game.nes"),
+            core_path: PathBuf::from("nestopia_libretro.dylib"),
+            core_id: "nestopia".to_string(),
+            dump_frame: None,
+        })
+    }
+
+    #[test]
+    fn returns_system_directory_to_core() {
+        let mut session = test_session();
+        let mut system_dir: *const c_char = ptr::null();
+
+        let handled = session.on_environment(
+            RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY,
+            &mut system_dir as *mut *const c_char as *mut c_void,
+        );
+
+        assert!(handled);
+        assert!(!system_dir.is_null());
+        let path = unsafe { CStr::from_ptr(system_dir) }
+            .to_string_lossy()
+            .into_owned();
+        assert!(path.contains(".allium/config/play/nestopia"));
+    }
+
+    #[test]
+    fn returns_save_directory_to_core() {
+        let mut session = test_session();
+        let mut save_dir: *const c_char = ptr::null();
+
+        let handled = session.on_environment(
+            RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY,
+            &mut save_dir as *mut *const c_char as *mut c_void,
+        );
+
+        assert!(handled);
+        assert!(!save_dir.is_null());
+        let path = unsafe { CStr::from_ptr(save_dir) }
+            .to_string_lossy()
+            .into_owned();
+        assert!(path.contains("Saves/CurrentProfile/play/nestopia"));
+    }
+
+    #[test]
+    fn accepts_xrgb8888_pixel_format() {
+        let mut session = test_session();
+        let mut format = retro_pixel_format_RETRO_PIXEL_FORMAT_XRGB8888;
+
+        let handled = session.on_environment(
+            RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
+            &mut format as *mut retro_pixel_format as *mut c_void,
+        );
+
+        assert!(handled);
+    }
+
+    #[test]
+    fn reuses_frame_buffer_when_geometry_matches() {
+        let mut session = test_session();
+        let first = [1u8, 2, 3, 4];
+        let second = [5u8, 6, 7, 8];
+
+        session.on_video_refresh(first.as_ptr() as *const c_void, 1, 1, 4);
+        let first_ptr = session.captured_frame.as_ref().unwrap().data.as_ptr();
+
+        session.on_video_refresh(second.as_ptr() as *const c_void, 1, 1, 4);
+        let frame = session.captured_frame.as_ref().unwrap();
+
+        assert_eq!(frame.data.as_ptr(), first_ptr);
+        assert_eq!(frame.data, second);
     }
 }

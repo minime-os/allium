@@ -25,7 +25,7 @@ const RGB565_BYTES_PER_PIXEL: usize = 2;
 
 // PPM is used here because it needs no encoder: header plus raw RGB bytes.
 pub fn encode_rgb565_ppm(frame: &CapturedFrame) -> Result<Vec<u8>> {
-    validate_frame(frame)?;
+    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
 
     let mut ppm_data = Vec::with_capacity(ppm_len(frame.width, frame.height));
     ppm_data.extend_from_slice(format!("P6\n{} {}\n255\n", frame.width, frame.height).as_bytes());
@@ -42,9 +42,29 @@ pub fn encode_rgb565_ppm(frame: &CapturedFrame) -> Result<Vec<u8>> {
     Ok(ppm_data)
 }
 
+const XRGB8888_BYTES_PER_PIXEL: usize = 4;
+
+pub fn encode_xrgb8888_ppm(frame: &CapturedFrame) -> Result<Vec<u8>> {
+    validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
+
+    let mut ppm_data = Vec::with_capacity(ppm_len(frame.width, frame.height));
+    ppm_data.extend_from_slice(format!("P6\n{} {}\n255\n", frame.width, frame.height).as_bytes());
+
+    for y in 0..frame.height as usize {
+        let row_start = y * frame.pitch;
+        for x in 0..frame.width as usize {
+            let pixel_start = row_start + x * XRGB8888_BYTES_PER_PIXEL;
+            let bytes = &frame.data[pixel_start..pixel_start + XRGB8888_BYTES_PER_PIXEL];
+            ppm_data.extend_from_slice(&[bytes[2], bytes[1], bytes[0]]);
+        }
+    }
+
+    Ok(ppm_data)
+}
+
 // Validate pitch and length first so conversion never indexes past the copied frame.
-fn validate_frame(frame: &CapturedFrame) -> Result<()> {
-    let row_bytes = frame.width as usize * RGB565_BYTES_PER_PIXEL;
+fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
+    let row_bytes = frame.width as usize * bytes_per_pixel;
     if frame.pitch < row_bytes {
         return Err(anyhow!(
             "Frame pitch {} is smaller than row size {}",
@@ -115,6 +135,15 @@ mod tests {
         let ppm = encode_rgb565_ppm(&frame).unwrap();
 
         assert_eq!(ppm, b"P6\n1 2\n255\n\xff\x00\x00\x00\x00\xff");
+    }
+
+    #[test]
+    fn encodes_xrgb8888_ppm() {
+        let frame = CapturedFrame::new(vec![0x00, 0x00, 0xff, 0x00], 1, 1, 4);
+
+        let ppm = encode_xrgb8888_ppm(&frame).unwrap();
+
+        assert_eq!(ppm, b"P6\n1 1\n255\n\xff\x00\x00");
     }
 
     #[test]

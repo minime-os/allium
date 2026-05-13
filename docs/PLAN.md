@@ -330,7 +330,7 @@ Call `retro_init()`. Call `retro_get_system_info(&mut info)`. Convert raw string
 
 ## Stage 3: First frame
 
-**Goal.** `play` loads a ROM into a core, runs the core for a single frame, captures framebuffer pixels, and writes them to a PPM file. No window, no audio yet.
+**Goal.** `play` loads a ROM into a core, runs enough unpaced frames to capture a useful framebuffer, and writes it to a PPM file. No window, no audio yet.
 
 **What you'll learn.** libretro callbacks, `retro_load_game`, `retro_run`, the video refresh callback, pixel format conversion, and how to route C callbacks into one active `PlaySession` safely.
 
@@ -368,11 +368,11 @@ Hook them with `retro_set_*` before `retro_init`.
 
 Read the ROM into memory only if the core needs data. Construct `retro_game_info` with path/data/size per libretro expectations. Call `retro_load_game(&info)`. Query AV info and log geometry, fps, and pixel format.
 
-Play's v1 video path is RGB565-only, matching MinArch's performance-oriented approach. Accept `RETRO_PIXEL_FORMAT_RGB565` and reject other requested formats for now. Cores that only emit XRGB8888 are handled later as a bonus step.
+Play's v1 video path is RGB565-first, matching MinArch's performance-oriented approach. Accept `RETRO_PIXEL_FORMAT_RGB565`; also accept `RETRO_PIXEL_FORMAT_XRGB8888` for frame dumps because common macOS cores like Nestopia request it before content loads.
 
 #### 3C. Run one frame, capture, dump
 
-Call `retro_run()` once. In `video_refresh`, copy pixels into a preallocated frame buffer, respecting `pitch`. Convert RGB565 to RGB888 and write a PPM at `--dump-frame <path>`.
+Call `retro_run()` for a short dump-only warmup. In `video_refresh`, copy pixels into a frame buffer, respecting `pitch`. Convert RGB565 or XRGB8888 to RGB888 and write a PPM at `--dump-frame <path>`.
 
 Then call `retro_unload_game`, clear the active-session pointer, drop state, and exit.
 
@@ -387,7 +387,7 @@ Then call `retro_unload_game`, clear the active-session pointer, drop state, and
 - [x] All callbacks wired and delegated through the active session pointer
 - [x] Active pointer lifetime invariant is documented near the unsafe code
 - [x] PPM opens correctly and shows recognizable graphics
-- [x] Sim and hw produce visually comparable PPMs from the same ROM
+- [x] Sim produces a recognizable PPM from a real core/ROM; hw visual comparison is deferred until a Miyoo smoke-test path is available
 
 ### Commit message suggestion
 
