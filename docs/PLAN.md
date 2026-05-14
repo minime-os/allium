@@ -814,6 +814,10 @@ FPS, frame time, audio underrun count, cpu freq. Render as a small text overlay 
 
 Some cores want different button layouts. Store per-core overrides in a config file. Apply in the input_state mapper.
 
+### Bonus I: Dynamic audio pacing
+
+Add MinArch-style audio prebuffering and drift correction for normal playback. Start audio paused until the queue reaches a target fill level, track queue occupancy, underruns, and overruns, then use small resampling adjustments to keep the buffer near target. Use `rubato` or `libsamplerate-rs`; keep the v1 exact-rate path available for comparison.
+
 ---
 
 ## Final notes
