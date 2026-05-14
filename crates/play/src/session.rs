@@ -231,8 +231,6 @@ impl PlaySession {
 
             #[cfg(feature = "miyoo")]
             self.poll_platform_input(&mut platform).await;
-            #[cfg(feature = "simulator")]
-            self.poll_simulator_input(&mut simulator_video)?;
             self.core
                 .as_ref()
                 .ok_or_else(|| anyhow!("Core not loaded"))?
@@ -243,6 +241,8 @@ impl PlaySession {
                 shutdown_reason = "window closed";
                 break;
             }
+            #[cfg(feature = "simulator")]
+            self.apply_simulator_input(&mut simulator_video);
             #[cfg(feature = "miyoo")]
             self.present_miyoo_frame(&mut miyoo_video)?;
             next_frame_at += frame_interval;
@@ -346,11 +346,10 @@ impl PlaySession {
     }
 
     #[cfg(feature = "simulator")]
-    fn poll_simulator_input(&mut self, video: &mut SimulatorVideo) -> Result<()> {
-        for key_event in video.poll_key_events()? {
+    fn apply_simulator_input(&mut self, video: &mut SimulatorVideo) {
+        for key_event in video.take_key_events() {
             self.joypad_state.apply(key_event);
         }
-        Ok(())
     }
 }
 

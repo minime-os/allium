@@ -63,7 +63,7 @@ impl SimulatorVideo {
         )?;
         let event_loop = EventLoop::new()?;
         let pixels = vec![0; width.get() as usize * height.get() as usize];
-        let mut video = Self {
+        let video = Self {
             event_loop,
             app: SimulatorVideoApp {
                 window: None,
@@ -77,7 +77,6 @@ impl SimulatorVideo {
             rect,
         };
 
-        video.pump_events()?;
         info!(
             "Simulator video initialized at {}x{}",
             width.get(),
@@ -128,9 +127,8 @@ impl SimulatorVideo {
         Ok(false)
     }
 
-    pub fn poll_key_events(&mut self) -> Result<Vec<KeyEvent>> {
-        self.pump_events()?;
-        Ok(std::mem::take(&mut self.app.key_events))
+    pub fn take_key_events(&mut self) -> Vec<KeyEvent> {
+        std::mem::take(&mut self.app.key_events)
     }
 
     fn pump_events(&mut self) -> Result<()> {
