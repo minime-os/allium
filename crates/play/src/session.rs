@@ -11,6 +11,7 @@ use crate::paths::PlayPaths;
 #[cfg(feature = "simulator")]
 use crate::simulator_video::{SimulatorPixelFormat, SimulatorVideo};
 use anyhow::{Context, Result, anyhow};
+#[cfg(feature = "miyoo")]
 use common::platform::{DefaultPlatform, Platform};
 use log::{debug, info};
 use std::ffi::CString;
@@ -181,6 +182,7 @@ impl PlaySession {
         let target_fps = av_info.timing.fps;
         let audio_sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
         let frame_interval = frame_interval(target_fps)?;
+        #[cfg(feature = "miyoo")]
         let mut platform = DefaultPlatform::new()?;
         let mut frames_run = 0u64;
         let started_at = Instant::now();
@@ -227,7 +229,10 @@ impl PlaySession {
                 break;
             }
 
+            #[cfg(feature = "miyoo")]
             self.poll_platform_input(&mut platform).await;
+            #[cfg(feature = "simulator")]
+            self.poll_simulator_input(&mut simulator_video)?;
             self.core
                 .as_ref()
                 .ok_or_else(|| anyhow!("Core not loaded"))?
@@ -331,12 +336,21 @@ impl PlaySession {
         Ok(())
     }
 
+    #[cfg(feature = "miyoo")]
     async fn poll_platform_input(&mut self, platform: &mut DefaultPlatform) {
         while let Ok(key_event) =
             tokio::time::timeout(Duration::from_millis(1), platform.poll()).await
         {
             self.joypad_state.apply(key_event);
         }
+    }
+
+    #[cfg(feature = "simulator")]
+    fn poll_simulator_input(&mut self, video: &mut SimulatorVideo) -> Result<()> {
+        for key_event in video.poll_key_events()? {
+            self.joypad_state.apply(key_event);
+        }
+        Ok(())
     }
 }
 

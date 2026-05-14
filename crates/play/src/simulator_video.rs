@@ -1,6 +1,7 @@
 use crate::frame::{CapturedFrame, scale_rgb565_to_xrgb8888, scale_xrgb8888_to_xrgb8888};
 use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
 use anyhow::{Context, Result, anyhow};
+use common::platform::{Key, KeyEvent};
 use log::info;
 use softbuffer::Surface;
 use std::num::NonZeroU32;
@@ -8,8 +9,9 @@ use std::rc::Rc;
 use std::time::Duration;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, KeyEvent as WinitKeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::PhysicalKey;
 #[cfg(target_os = "macos")]
 use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 #[cfg(not(target_os = "macos"))]
@@ -29,6 +31,7 @@ struct SimulatorVideoApp {
     width: NonZeroU32,
     height: NonZeroU32,
     closed: bool,
+    key_events: Vec<KeyEvent>,
 }
 
 #[derive(Clone, Copy)]
@@ -68,6 +71,7 @@ impl SimulatorVideo {
                 width,
                 height,
                 closed: false,
+                key_events: Vec::new(),
             },
             pixels,
             rect,
@@ -122,6 +126,11 @@ impl SimulatorVideo {
             .map_err(|err| anyhow!("Failed to present Play softbuffer buffer: {}", err))?;
 
         Ok(false)
+    }
+
+    pub fn poll_key_events(&mut self) -> Result<Vec<KeyEvent>> {
+        self.pump_events()?;
+        Ok(std::mem::take(&mut self.app.key_events))
     }
 
     fn pump_events(&mut self) -> Result<()> {
@@ -192,9 +201,30 @@ impl ApplicationHandler for SimulatorVideoApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        if matches!(event, WindowEvent::CloseRequested) {
-            self.closed = true;
-            event_loop.exit();
+        match event {
+            WindowEvent::CloseRequested => {
+                self.closed = true;
+                event_loop.exit();
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    WinitKeyEvent {
+                        physical_key: PhysicalKey::Code(keycode),
+                        state,
+                        repeat,
+                        ..
+                    },
+                ..
+            } => {
+                let key = Key::from(keycode);
+                let key_event = match (state, repeat) {
+                    (ElementState::Pressed, true) => KeyEvent::Autorepeat(key),
+                    (ElementState::Pressed, false) => KeyEvent::Pressed(key),
+                    (ElementState::Released, _) => KeyEvent::Released(key),
+                };
+                self.key_events.push(key_event);
+            }
+            _ => {}
         }
     }
 
