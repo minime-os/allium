@@ -4,16 +4,17 @@ use crate::callbacks::{self, LibretroCallbacks};
 use crate::config::PlayConfig;
 use crate::control::ControlEvent;
 use crate::core::Core;
-use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
 use crate::input::JoypadState;
 use crate::libretro_sys::*;
-#[cfg(feature = "miyoo")]
-use crate::miyoo_video::{MiyooPixelFormat, MiyooVideo};
 use crate::paths::PlayPaths;
 use crate::scale::ScaleMode;
-#[cfg(feature = "simulator")]
-use crate::simulator_video::{SimulatorPixelFormat, SimulatorVideo};
 use crate::udp::CommandState;
+use crate::video::frame::{CapturedFrame, VideoFrameFormat};
+#[cfg(feature = "miyoo")]
+use crate::video::miyoo::MiyooVideo;
+#[cfg(feature = "simulator")]
+use crate::video::simulator::SimulatorVideo;
+use crate::video::{self, VideoBackend};
 use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "miyoo")]
 use common::platform::{DefaultPlatform, Platform};
@@ -36,7 +37,7 @@ pub struct PlaySession {
     active_rom_path: Option<PathBuf>,
     extracted_rom_dir: Option<PathBuf>,
     captured_frame: Option<CapturedFrame>,
-    pixel_format: Option<FramePixelFormat>,
+    pixel_format: Option<VideoFrameFormat>,
     av_info: Option<retro_system_av_info>,
     audio_producer: Option<AudioProducer>,
     joypad_state: JoypadState,
@@ -48,12 +49,6 @@ pub struct PlaySession {
     command_state: Arc<CommandState>,
     system_dir: CString,
     save_dir: CString,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FramePixelFormat {
-    Rgb565,
-    Xrgb8888,
 }
 
 const DUMP_WARMUP_FRAMES: usize = 60;
@@ -527,12 +522,12 @@ impl PlaySession {
             None => return Ok(false),
         };
         let format = match self.pixel_format {
-            Some(FramePixelFormat::Rgb565) => SimulatorPixelFormat::Rgb565,
-            Some(FramePixelFormat::Xrgb8888) => SimulatorPixelFormat::Xrgb8888,
+            Some(format) => format,
             None => return Ok(false),
         };
 
-        video.present(frame, format)
+        let result = video.present(frame, format)?;
+        Ok(result.should_quit)
     }
 
     #[cfg(feature = "miyoo")]
@@ -542,12 +537,12 @@ impl PlaySession {
             None => return Ok(()),
         };
         let format = match self.pixel_format {
-            Some(FramePixelFormat::Rgb565) => MiyooPixelFormat::Rgb565,
-            Some(FramePixelFormat::Xrgb8888) => MiyooPixelFormat::Xrgb8888,
+            Some(format) => format,
             None => return Ok(()),
         };
 
-        video.present(frame, format)
+        video.present(frame, format)?;
+        Ok(())
     }
 
     // A one-frame dump proves callbacks and pixel conversion before real video exists.
@@ -562,8 +557,8 @@ impl PlaySession {
             .as_ref()
             .ok_or_else(|| anyhow!("No frame captured"))?;
         let ppm_data = match self.pixel_format {
-            Some(FramePixelFormat::Rgb565) => encode_rgb565_ppm(frame)?,
-            Some(FramePixelFormat::Xrgb8888) => encode_xrgb8888_ppm(frame)?,
+            Some(VideoFrameFormat::Rgb565) => video::ppm::encode_rgb565(frame)?,
+            Some(VideoFrameFormat::Xrgb8888) => video::ppm::encode_xrgb8888(frame)?,
             None => return Err(anyhow!("Frame dump requires a supported pixel format")),
         };
 
@@ -773,11 +768,11 @@ impl LibretroCallbacks for PlaySession {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => {
                 let format = unsafe { *(data as *const retro_pixel_format) };
                 if format == retro_pixel_format_RETRO_PIXEL_FORMAT_RGB565 {
-                    self.pixel_format = Some(FramePixelFormat::Rgb565);
+                    self.pixel_format = Some(VideoFrameFormat::Rgb565);
                     info!("Core set pixel format: RGB565");
                     true
                 } else if format == retro_pixel_format_RETRO_PIXEL_FORMAT_XRGB8888 {
-                    self.pixel_format = Some(FramePixelFormat::Xrgb8888);
+                    self.pixel_format = Some(VideoFrameFormat::Xrgb8888);
                     info!("Core set pixel format: XRGB8888");
                     true
                 } else {

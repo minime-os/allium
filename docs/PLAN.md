@@ -530,7 +530,7 @@ Scaling is separate from first visible video. Do not block 4B/4C on scale qualit
 ### Done when
 
 - [x] Basic scaling works on both targets
-- [x] Video abstraction exists only if it removes real duplication
+- [x] Video abstraction lives in `play::video`; PPM dumps, simulator, and Miyoo are separate sinks
 - [x] Hot path avoids trait dispatch where practical
 
 ### Commit message suggestion

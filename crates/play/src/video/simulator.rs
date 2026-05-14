@@ -1,6 +1,8 @@
 use crate::control::ControlEvent;
-use crate::frame::{CapturedFrame, scale_rgb565_to_xrgb8888, scale_xrgb8888_to_xrgb8888};
 use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
+use crate::video::convert::{scale_rgb565_to_xrgb8888, scale_xrgb8888_to_xrgb8888};
+use crate::video::frame::{CapturedFrame, VideoFrameFormat};
+use crate::video::{VideoBackend, VideoPresentResult};
 use anyhow::{Context, Result, anyhow};
 use common::platform::{Key, KeyEvent};
 use log::info;
@@ -36,14 +38,8 @@ struct SimulatorVideoApp {
     control_events: Vec<ControlEvent>,
 }
 
-#[derive(Clone, Copy)]
-pub enum SimulatorPixelFormat {
-    Rgb565,
-    Xrgb8888,
-}
-
-impl SimulatorVideo {
-    pub fn new(
+impl VideoBackend for SimulatorVideo {
+    fn new(
         source_width: u32,
         source_height: u32,
         aspect_ratio: f32,
@@ -88,21 +84,25 @@ impl SimulatorVideo {
         Ok(video)
     }
 
-    pub fn present(&mut self, frame: &CapturedFrame, format: SimulatorPixelFormat) -> Result<bool> {
+    fn present(
+        &mut self,
+        frame: &CapturedFrame,
+        format: VideoFrameFormat,
+    ) -> Result<VideoPresentResult> {
         self.pump_events()?;
         if self.app.closed {
-            return Ok(true);
+            return Ok(VideoPresentResult { should_quit: true });
         }
 
         match format {
-            SimulatorPixelFormat::Rgb565 => scale_rgb565_to_xrgb8888(
+            VideoFrameFormat::Rgb565 => scale_rgb565_to_xrgb8888(
                 frame,
                 &mut self.pixels,
                 self.app.width.get(),
                 self.app.height.get(),
                 self.rect,
             )?,
-            SimulatorPixelFormat::Xrgb8888 => scale_xrgb8888_to_xrgb8888(
+            VideoFrameFormat::Xrgb8888 => scale_xrgb8888_to_xrgb8888(
                 frame,
                 &mut self.pixels,
                 self.app.width.get(),
@@ -127,10 +127,10 @@ impl SimulatorVideo {
             .present()
             .map_err(|err| anyhow!("Failed to present Play softbuffer buffer: {}", err))?;
 
-        Ok(false)
+        Ok(VideoPresentResult::default())
     }
 
-    pub fn set_scale(
+    fn set_scale(
         &mut self,
         mode: ScaleMode,
         source_width: u32,
@@ -147,7 +147,9 @@ impl SimulatorVideo {
         )?;
         Ok(())
     }
+}
 
+impl SimulatorVideo {
     pub fn take_key_events(&mut self) -> Vec<KeyEvent> {
         std::mem::take(&mut self.app.key_events)
     }

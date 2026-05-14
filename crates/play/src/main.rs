@@ -7,18 +7,14 @@ mod callbacks;
 mod config;
 mod control;
 mod core;
-mod frame;
 mod input;
 mod libretro_sys;
 mod logs;
-#[cfg(feature = "miyoo")]
-mod miyoo_video;
 mod paths;
 mod scale;
 mod session;
-#[cfg(feature = "simulator")]
-mod simulator_video;
 mod udp;
+mod video;
 
 use anyhow::Result;
 use args::Args;

@@ -1,7 +1,9 @@
-use crate::frame::{
-    CapturedFrame, scale_rgb565_to_bgra8888, scale_rgb565_to_rgb565, scale_xrgb8888_to_bgra8888,
-};
 use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
+use crate::video::convert::{
+    scale_rgb565_to_bgra8888, scale_rgb565_to_rgb565, scale_xrgb8888_to_bgra8888,
+};
+use crate::video::frame::{CapturedFrame, VideoFrameFormat};
+use crate::video::{VideoBackend, VideoPresentResult};
 use anyhow::{Result, anyhow};
 use framebuffer::Framebuffer;
 use log::info;
@@ -24,14 +26,8 @@ enum MiyooFramebufferFormat {
     Bgra8888,
 }
 
-#[derive(Clone, Copy)]
-pub enum MiyooPixelFormat {
-    Rgb565,
-    Xrgb8888,
-}
-
-impl MiyooVideo {
-    pub fn new(
+impl VideoBackend for MiyooVideo {
+    fn new(
         source_width: u32,
         source_height: u32,
         aspect_ratio: f32,
@@ -74,40 +70,47 @@ impl MiyooVideo {
         })
     }
 
-    pub fn present(&mut self, frame: &CapturedFrame, pixel_format: MiyooPixelFormat) -> Result<()> {
+    fn present(
+        &mut self,
+        frame: &CapturedFrame,
+        pixel_format: VideoFrameFormat,
+    ) -> Result<VideoPresentResult> {
         match (self.format, pixel_format) {
-            (MiyooFramebufferFormat::Rgb565, MiyooPixelFormat::Rgb565) => scale_rgb565_to_rgb565(
+            (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Rgb565) => scale_rgb565_to_rgb565(
                 frame,
                 &mut self.fb.frame,
                 self.pitch,
                 self.height,
                 self.rect,
-            ),
-            (MiyooFramebufferFormat::Rgb565, MiyooPixelFormat::Xrgb8888) => Err(anyhow!(
-                "Miyoo 16-bit framebuffer does not support XRGB8888 frames"
-            )),
-            (MiyooFramebufferFormat::Bgra8888, MiyooPixelFormat::Rgb565) => {
+            )?,
+            (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Xrgb8888) => {
+                return Err(anyhow!(
+                    "Miyoo 16-bit framebuffer does not support XRGB8888 frames"
+                ));
+            }
+            (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Rgb565) => {
                 scale_rgb565_to_bgra8888(
                     frame,
                     &mut self.fb.frame,
                     self.pitch,
                     self.height,
                     self.rect,
-                )
+                )?
             }
-            (MiyooFramebufferFormat::Bgra8888, MiyooPixelFormat::Xrgb8888) => {
+            (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Xrgb8888) => {
                 scale_xrgb8888_to_bgra8888(
                     frame,
                     &mut self.fb.frame,
                     self.pitch,
                     self.height,
                     self.rect,
-                )
+                )?
             }
-        }
+        };
+        Ok(VideoPresentResult::default())
     }
 
-    pub fn set_scale(
+    fn set_scale(
         &mut self,
         mode: ScaleMode,
         source_width: u32,
@@ -124,7 +127,9 @@ impl MiyooVideo {
         )?;
         Ok(())
     }
+}
 
+impl MiyooVideo {
     fn width(&self) -> u32 {
         self.fb.var_screen_info.xres
     }
