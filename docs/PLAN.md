@@ -658,9 +658,9 @@ Track state slot 0-9. Save/load operate on the current slot. Keep autosave slot 
 
 ### Done when
 
-- [ ] SRAM persists across runs
-- [ ] Save/load state works on at least 3 slots
-- [ ] Paths are Allium-owned and tested
+- [x] SRAM persists across runs
+- [x] Save/load state works on at least 3 slots
+- [x] Paths are Allium-owned and tested
 
 ### Commit message suggestion
 

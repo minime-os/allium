@@ -1,6 +1,8 @@
 use crate::args::Args;
 use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::callbacks::{self, LibretroCallbacks};
+#[cfg(feature = "simulator")]
+use crate::control::ControlEvent;
 use crate::core::Core;
 use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
 use crate::input::JoypadState;
@@ -13,7 +15,7 @@ use crate::simulator_video::{SimulatorPixelFormat, SimulatorVideo};
 use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "miyoo")]
 use common::platform::{DefaultPlatform, Platform};
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::ffi::CString;
 use std::fs;
 use std::os::raw::{c_char, c_uint, c_void};
@@ -32,6 +34,8 @@ pub struct PlaySession {
     audio_producer: Option<AudioProducer>,
     joypad_state: JoypadState,
     fast_forwarding: bool,
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    state_slot: u8,
     system_dir: CString,
     save_dir: CString,
 }
@@ -63,6 +67,7 @@ impl PlaySession {
             audio_producer: None,
             joypad_state: JoypadState::new(),
             fast_forwarding: false,
+            state_slot: 0,
             system_dir,
             save_dir,
         }
@@ -159,6 +164,7 @@ impl PlaySession {
         }
 
         core.load_game(&game_info)?;
+        self.load_sram()?;
 
         let av_info = core.get_system_av_info();
         info!(
@@ -280,8 +286,102 @@ impl PlaySession {
 
     fn unload_game(&mut self) {
         if let Some(core) = self.core.take() {
+            if let Err(err) = self.save_sram(&core) {
+                warn!("Failed to save SRAM: {}", err);
+            }
             core.unload_game();
         }
+    }
+
+    fn load_sram(&self) -> Result<()> {
+        let Some(core) = &self.core else {
+            return Ok(());
+        };
+        let Some((data, size)) = core.memory_region(RETRO_MEMORY_SAVE_RAM) else {
+            return Ok(());
+        };
+        let path = self.paths.sram_path();
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let sram = fs::read(&path)?;
+        if sram.len() != size {
+            warn!(
+                "SRAM size mismatch for {:?}: file={}, core={}",
+                path,
+                sram.len(),
+                size
+            );
+        }
+        let copy_len = sram.len().min(size);
+        unsafe {
+            ptr::copy_nonoverlapping(sram.as_ptr(), data, copy_len);
+        }
+        info!("Loaded SRAM from {:?}", path);
+        Ok(())
+    }
+
+    fn save_sram(&self, core: &Core) -> Result<()> {
+        let Some((data, size)) = core.memory_region(RETRO_MEMORY_SAVE_RAM) else {
+            return Ok(());
+        };
+        fs::create_dir_all(&self.paths.save_dir)?;
+        let path = self.paths.sram_path();
+        let sram = unsafe { std::slice::from_raw_parts(data as *const u8, size) };
+        fs::write(&path, sram)?;
+        info!("Saved SRAM to {:?}", path);
+        Ok(())
+    }
+
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    fn save_state(&self) -> Result<()> {
+        let core = self
+            .core
+            .as_ref()
+            .ok_or_else(|| anyhow!("Core not loaded"))?;
+        let size = core.serialize_size();
+        if size == 0 {
+            return Err(anyhow!("Core does not support save states"));
+        }
+
+        let mut data = vec![0; size];
+        if !core.serialize(&mut data) {
+            return Err(anyhow!("Core failed to save state"));
+        }
+
+        fs::create_dir_all(&self.paths.state_dir)?;
+        let path = self.paths.state_path(self.state_slot)?;
+        fs::write(&path, data)?;
+        info!("Saved state slot {} to {:?}", self.state_slot, path);
+        Ok(())
+    }
+
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    fn load_state(&self) -> Result<()> {
+        let core = self
+            .core
+            .as_ref()
+            .ok_or_else(|| anyhow!("Core not loaded"))?;
+        let path = self.paths.state_path(self.state_slot)?;
+        let data = fs::read(&path)?;
+        if !core.unserialize(&data) {
+            return Err(anyhow!("Core failed to load state"));
+        }
+
+        info!("Loaded state slot {} from {:?}", self.state_slot, path);
+        Ok(())
+    }
+
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    fn select_state_slot(&mut self, slot: u8) -> Result<()> {
+        if slot > 9 {
+            return Err(anyhow!("Save state slot must be between 0 and 9"));
+        }
+
+        self.state_slot = slot;
+        info!("Selected state slot {}", slot);
+        Ok(())
     }
 
     #[cfg(feature = "simulator")]
@@ -347,8 +447,22 @@ impl PlaySession {
 
     #[cfg(feature = "simulator")]
     fn apply_simulator_input(&mut self, video: &mut SimulatorVideo) {
+        for event in video.take_control_events() {
+            if let Err(err) = self.apply_control_event(event) {
+                warn!("Control event failed: {}", err);
+            }
+        }
         for key_event in video.take_key_events() {
             self.joypad_state.apply(key_event);
+        }
+    }
+
+    #[cfg(feature = "simulator")]
+    fn apply_control_event(&mut self, event: ControlEvent) -> Result<()> {
+        match event {
+            ControlEvent::SaveState => self.save_state(),
+            ControlEvent::LoadState => self.load_state(),
+            ControlEvent::SelectStateSlot(slot) => self.select_state_slot(slot),
         }
     }
 }

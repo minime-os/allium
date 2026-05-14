@@ -3,6 +3,7 @@ use anyhow::{Context, Result, anyhow};
 use libloading::Library;
 use std::ffi::CStr;
 use std::os::raw::c_uint;
+use std::os::raw::c_void;
 use std::path::Path;
 use std::ptr;
 
@@ -23,6 +24,7 @@ pub struct Core {
 }
 
 // CoreSymbols is the raw libretro function table loaded from the dynamic library.
+#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
 struct CoreSymbols {
     retro_init: unsafe extern "C" fn(), // Start the core after callbacks are registered.
     retro_deinit: unsafe extern "C" fn(), // Let the core clean up before the library unloads.
@@ -38,6 +40,11 @@ struct CoreSymbols {
     retro_load_game: unsafe extern "C" fn(game: *const retro_game_info) -> bool, // Hand the selected ROM to the core.
     retro_unload_game: unsafe extern "C" fn(), // Release game-specific state while keeping the core loaded.
     retro_run: unsafe extern "C" fn(),         // Execute one emulation frame.
+    retro_serialize_size: unsafe extern "C" fn() -> usize, // Ask how large a save state buffer must be.
+    retro_serialize: unsafe extern "C" fn(data: *mut c_void, len: usize) -> bool, // Copy core state into a buffer.
+    retro_unserialize: unsafe extern "C" fn(data: *const c_void, len: usize) -> bool, // Restore core state from a buffer.
+    retro_get_memory_data: unsafe extern "C" fn(id: c_uint) -> *mut c_void, // Get core-owned memory such as SRAM.
+    retro_get_memory_size: unsafe extern "C" fn(id: c_uint) -> usize, // Get core-owned memory size.
 }
 
 impl Core {
@@ -75,6 +82,11 @@ impl CoreSymbols {
                 retro_load_game: load_symbol(lib, b"retro_load_game")?,
                 retro_unload_game: load_symbol(lib, b"retro_unload_game")?,
                 retro_run: load_symbol(lib, b"retro_run")?,
+                retro_serialize_size: load_symbol(lib, b"retro_serialize_size")?,
+                retro_serialize: load_symbol(lib, b"retro_serialize")?,
+                retro_unserialize: load_symbol(lib, b"retro_unserialize")?,
+                retro_get_memory_data: load_symbol(lib, b"retro_get_memory_data")?,
+                retro_get_memory_size: load_symbol(lib, b"retro_get_memory_size")?,
             })
         }
     }
@@ -133,6 +145,35 @@ impl Core {
 
     pub fn run(&self) {
         unsafe { (self.symbols.retro_run)() };
+    }
+
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    pub fn serialize_size(&self) -> usize {
+        unsafe { (self.symbols.retro_serialize_size)() }
+    }
+
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    pub fn serialize(&self, data: &mut [u8]) -> bool {
+        unsafe { (self.symbols.retro_serialize)(data.as_mut_ptr() as *mut c_void, data.len()) }
+    }
+
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    pub fn unserialize(&self, data: &[u8]) -> bool {
+        unsafe { (self.symbols.retro_unserialize)(data.as_ptr() as *const c_void, data.len()) }
+    }
+
+    pub fn memory_region(&self, id: c_uint) -> Option<(*mut u8, usize)> {
+        let size = unsafe { (self.symbols.retro_get_memory_size)(id) };
+        if size == 0 {
+            return None;
+        }
+
+        let data = unsafe { (self.symbols.retro_get_memory_data)(id) };
+        if data.is_null() {
+            return None;
+        }
+
+        Some((data as *mut u8, size))
     }
 
     // AV info can depend on loaded content, so query it after retro_load_game.

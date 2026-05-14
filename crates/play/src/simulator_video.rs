@@ -1,3 +1,4 @@
+use crate::control::ControlEvent;
 use crate::frame::{CapturedFrame, scale_rgb565_to_xrgb8888, scale_xrgb8888_to_xrgb8888};
 use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
 use anyhow::{Context, Result, anyhow};
@@ -11,7 +12,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent as WinitKeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::PhysicalKey;
+use winit::keyboard::{KeyCode, PhysicalKey};
 #[cfg(target_os = "macos")]
 use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 #[cfg(not(target_os = "macos"))]
@@ -32,6 +33,7 @@ struct SimulatorVideoApp {
     height: NonZeroU32,
     closed: bool,
     key_events: Vec<KeyEvent>,
+    control_events: Vec<ControlEvent>,
 }
 
 #[derive(Clone, Copy)]
@@ -72,6 +74,7 @@ impl SimulatorVideo {
                 height,
                 closed: false,
                 key_events: Vec::new(),
+                control_events: Vec::new(),
             },
             pixels,
             rect,
@@ -129,6 +132,10 @@ impl SimulatorVideo {
 
     pub fn take_key_events(&mut self) -> Vec<KeyEvent> {
         std::mem::take(&mut self.app.key_events)
+    }
+
+    pub fn take_control_events(&mut self) -> Vec<ControlEvent> {
+        std::mem::take(&mut self.app.control_events)
     }
 
     fn pump_events(&mut self) -> Result<()> {
@@ -214,6 +221,13 @@ impl ApplicationHandler for SimulatorVideoApp {
                     },
                 ..
             } => {
+                if state == ElementState::Pressed {
+                    if let Some(event) = control_event_for_keycode(keycode) {
+                        self.control_events.push(event);
+                        return;
+                    }
+                }
+
                 let key = Key::from(keycode);
                 let key_event = match (state, repeat) {
                     (ElementState::Pressed, true) => KeyEvent::Autorepeat(key),
@@ -232,5 +246,23 @@ impl ApplicationHandler for SimulatorVideoApp {
         ));
         #[cfg(not(target_os = "macos"))]
         event_loop.exit();
+    }
+}
+
+fn control_event_for_keycode(keycode: KeyCode) -> Option<ControlEvent> {
+    match keycode {
+        KeyCode::F5 => Some(ControlEvent::SaveState),
+        KeyCode::F8 => Some(ControlEvent::LoadState),
+        KeyCode::Digit0 => Some(ControlEvent::SelectStateSlot(0)),
+        KeyCode::Digit1 => Some(ControlEvent::SelectStateSlot(1)),
+        KeyCode::Digit2 => Some(ControlEvent::SelectStateSlot(2)),
+        KeyCode::Digit3 => Some(ControlEvent::SelectStateSlot(3)),
+        KeyCode::Digit4 => Some(ControlEvent::SelectStateSlot(4)),
+        KeyCode::Digit5 => Some(ControlEvent::SelectStateSlot(5)),
+        KeyCode::Digit6 => Some(ControlEvent::SelectStateSlot(6)),
+        KeyCode::Digit7 => Some(ControlEvent::SelectStateSlot(7)),
+        KeyCode::Digit8 => Some(ControlEvent::SelectStateSlot(8)),
+        KeyCode::Digit9 => Some(ControlEvent::SelectStateSlot(9)),
+        _ => None,
     }
 }
