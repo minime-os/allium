@@ -615,10 +615,10 @@ Extract an audio backend seam only after both implementations work and share eno
 
 ### Done when
 
-- [ ] Sim playable from keyboard
-- [ ] Hw playable from physical controls
-- [ ] `Key -> libretro joypad` mapping is tested or table-driven enough to inspect
-- [ ] No custom evdev/winit path exists without a need
+- [x] Sim playable from keyboard
+- [x] Hw playable from physical controls
+- [x] `Key -> libretro joypad` mapping is tested or table-driven enough to inspect
+- [x] No custom evdev/winit path exists without a need
 
 ### Commit message suggestion
 

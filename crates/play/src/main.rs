@@ -6,6 +6,7 @@ mod audio;
 mod callbacks;
 mod core;
 mod frame;
+mod input;
 mod libretro_sys;
 mod logs;
 #[cfg(feature = "miyoo")]

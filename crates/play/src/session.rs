@@ -3,6 +3,7 @@ use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::callbacks::{self, LibretroCallbacks};
 use crate::core::Core;
 use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
+use crate::input::JoypadState;
 use crate::libretro_sys::*;
 #[cfg(feature = "miyoo")]
 use crate::miyoo_video::{MiyooPixelFormat, MiyooVideo};
@@ -10,6 +11,7 @@ use crate::paths::PlayPaths;
 #[cfg(feature = "simulator")]
 use crate::simulator_video::{SimulatorPixelFormat, SimulatorVideo};
 use anyhow::{Context, Result, anyhow};
+use common::platform::{DefaultPlatform, Platform};
 use log::{debug, info};
 use std::ffi::CString;
 use std::fs;
@@ -27,6 +29,7 @@ pub struct PlaySession {
     pixel_format: Option<FramePixelFormat>,
     av_info: Option<retro_system_av_info>,
     audio_producer: Option<AudioProducer>,
+    joypad_state: JoypadState,
     fast_forwarding: bool,
     system_dir: CString,
     save_dir: CString,
@@ -57,6 +60,7 @@ impl PlaySession {
             pixel_format: None,
             av_info: None,
             audio_producer: None,
+            joypad_state: JoypadState::new(),
             fast_forwarding: false,
             system_dir,
             save_dir,
@@ -177,6 +181,7 @@ impl PlaySession {
         let target_fps = av_info.timing.fps;
         let audio_sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
         let frame_interval = frame_interval(target_fps)?;
+        let mut platform = DefaultPlatform::new()?;
         let mut frames_run = 0u64;
         let started_at = Instant::now();
         let mut next_frame_at = started_at;
@@ -222,6 +227,7 @@ impl PlaySession {
                 break;
             }
 
+            self.poll_platform_input(&mut platform).await;
             self.core
                 .as_ref()
                 .ok_or_else(|| anyhow!("Core not loaded"))?
@@ -323,6 +329,14 @@ impl PlaySession {
         fs::write(path, ppm_data)?;
         info!("Frame dumped to {:?}", path);
         Ok(())
+    }
+
+    async fn poll_platform_input(&mut self, platform: &mut DefaultPlatform) {
+        while let Ok(key_event) =
+            tokio::time::timeout(Duration::from_millis(1), platform.poll()).await
+        {
+            self.joypad_state.apply(key_event);
+        }
     }
 }
 
@@ -441,14 +455,8 @@ impl LibretroCallbacks for PlaySession {
 
     fn on_input_poll(&mut self) {}
 
-    fn on_input_state(
-        &mut self,
-        _port: c_uint,
-        _device: c_uint,
-        _index: c_uint,
-        _id: c_uint,
-    ) -> i16 {
-        0
+    fn on_input_state(&mut self, port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
+        self.joypad_state.input_state(port, device, index, id)
     }
 }
 
