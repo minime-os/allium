@@ -106,4 +106,26 @@ impl MiyooVideo {
             }
         }
     }
+
+    pub fn set_scale(
+        &mut self,
+        mode: ScaleMode,
+        source_width: u32,
+        source_height: u32,
+        aspect_ratio: f32,
+    ) -> Result<()> {
+        self.rect = calculate_scale_rect(
+            mode,
+            source_width,
+            source_height,
+            aspect_ratio,
+            self.width(),
+            self.height,
+        )?;
+        Ok(())
+    }
+
+    fn width(&self) -> u32 {
+        self.fb.var_screen_info.xres
+    }
 }

@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::callbacks::{self, LibretroCallbacks};
-#[cfg(feature = "simulator")]
+use crate::config::PlayConfig;
 use crate::control::ControlEvent;
 use crate::core::Core;
 use crate::frame::{CapturedFrame, encode_rgb565_ppm, encode_xrgb8888_ppm};
@@ -10,8 +10,10 @@ use crate::libretro_sys::*;
 #[cfg(feature = "miyoo")]
 use crate::miyoo_video::{MiyooPixelFormat, MiyooVideo};
 use crate::paths::PlayPaths;
+use crate::scale::ScaleMode;
 #[cfg(feature = "simulator")]
 use crate::simulator_video::{SimulatorPixelFormat, SimulatorVideo};
+use crate::udp::CommandState;
 use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "miyoo")]
 use common::platform::{DefaultPlatform, Platform};
@@ -19,23 +21,31 @@ use log::{debug, info, warn};
 use std::ffi::CString;
 use std::fs;
 use std::os::raw::{c_char, c_uint, c_void};
+use std::path::{Path, PathBuf};
 use std::ptr;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // One session owns the mutable runtime state so callbacks have one place to land.
 pub struct PlaySession {
     args: Args,
     paths: PlayPaths,
+    config: PlayConfig,
     core: Option<Core>,
     rom_data: Option<Vec<u8>>,
+    active_rom_path: Option<PathBuf>,
+    extracted_rom_dir: Option<PathBuf>,
     captured_frame: Option<CapturedFrame>,
     pixel_format: Option<FramePixelFormat>,
     av_info: Option<retro_system_av_info>,
     audio_producer: Option<AudioProducer>,
     joypad_state: JoypadState,
     fast_forwarding: bool,
-    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-    state_slot: u8,
+    paused: bool,
+    should_quit: bool,
+    scale_mode: ScaleMode,
+    state_slot: i8,
+    command_state: Arc<CommandState>,
     system_dir: CString,
     save_dir: CString,
 }
@@ -56,18 +66,30 @@ impl PlaySession {
             .expect("Play system dir must not contain NUL");
         let save_dir = CString::new(paths.save_dir.to_string_lossy().into_owned())
             .expect("Play save dir must not contain NUL");
+        let config = PlayConfig::load().unwrap_or_else(|err| {
+            warn!("Failed to load Play config, using defaults: {}", err);
+            PlayConfig::default()
+        });
+        let scale_mode = args.scale;
         Self {
             args,
             paths,
+            config,
             core: None,
             rom_data: None,
+            active_rom_path: None,
+            extracted_rom_dir: None,
             captured_frame: None,
             pixel_format: None,
             av_info: None,
             audio_producer: None,
             joypad_state: JoypadState::new(),
             fast_forwarding: false,
+            paused: false,
+            should_quit: false,
+            scale_mode,
             state_slot: 0,
+            command_state: CommandState::new(0),
             system_dir,
             save_dir,
         }
@@ -135,15 +157,14 @@ impl PlaySession {
         fs::create_dir_all(&self.paths.config_dir)?;
         fs::create_dir_all(&self.paths.save_dir)?;
 
-        let core = self
+        let sys_info = self
             .core
             .as_ref()
-            .ok_or_else(|| anyhow!("Core not loaded"))?;
-        let sys_info = core.get_system_info();
+            .ok_or_else(|| anyhow!("Core not loaded"))?
+            .get_system_info();
 
-        let path_str = self
-            .paths
-            .rom
+        let rom_path = self.resolve_rom_path(&sys_info)?;
+        let path_str = rom_path
             .to_str()
             .ok_or_else(|| anyhow!("Invalid ROM path"))?;
         let c_path = CString::new(path_str)?;
@@ -157,14 +178,23 @@ impl PlaySession {
 
         if !sys_info.need_fullpath {
             info!("Core needs ROM data in memory, loading...");
-            let data = fs::read(&self.paths.rom)?;
+            let data = fs::read(&rom_path)?;
             game_info.data = data.as_ptr() as *const c_void;
             game_info.size = data.len();
             self.rom_data = Some(data);
         }
 
+        let core = self
+            .core
+            .as_ref()
+            .ok_or_else(|| anyhow!("Core not loaded"))?;
         core.load_game(&game_info)?;
         self.load_sram()?;
+        if self.config.autoload
+            && let Err(err) = self.load_state_slot(-1)
+        {
+            debug!("Autosave autoload skipped: {}", err);
+        }
 
         let av_info = core.get_system_av_info();
         info!(
@@ -177,6 +207,47 @@ impl PlaySession {
         self.av_info = Some(av_info);
 
         Ok(())
+    }
+
+    fn resolve_rom_path(&mut self, sys_info: &crate::core::CoreInfo) -> Result<PathBuf> {
+        self.active_rom_path = None;
+        self.extracted_rom_dir = None;
+
+        if !is_zip_path(&self.paths.rom) || sys_info.block_extract {
+            self.active_rom_path = Some(self.paths.rom.clone());
+            return Ok(self.paths.rom.clone());
+        }
+
+        let extracted = self.extract_zip_rom(&sys_info.valid_extensions)?;
+        self.active_rom_path = Some(extracted.clone());
+        Ok(extracted)
+    }
+
+    fn extract_zip_rom(&mut self, valid_extensions: &str) -> Result<PathBuf> {
+        let file = fs::File::open(&self.paths.rom)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+        let index = find_zip_rom_index(&mut archive, valid_extensions)?;
+        let mut entry = archive.by_index(index)?;
+        let file_name = Path::new(entry.name())
+            .file_name()
+            .ok_or_else(|| anyhow!("ZIP ROM entry has no file name"))?
+            .to_owned();
+        let dir = std::env::temp_dir().join(format!(
+            "allium-play-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir)?;
+        let path = dir.join(file_name);
+        let mut out = fs::File::create(&path)?;
+        std::io::copy(&mut entry, &mut out)?;
+
+        info!("Extracted ZIP ROM to {:?}", path);
+        self.extracted_rom_dir = Some(dir);
+        Ok(path)
     }
 
     // One retro_run call advances one emulated frame; this keeps that cadence near core FPS.
@@ -219,6 +290,13 @@ impl PlaySession {
         let _audio = crate::audio::SimulatorAudio::new(audio_sample_rate, audio_consumer)?;
         #[cfg(feature = "miyoo")]
         let _audio = crate::audio::MiyooAudio::new(audio_sample_rate, audio_consumer)?;
+        let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
+        let command_state = Arc::clone(&self.command_state);
+        let command_server = tokio::spawn(async move {
+            if let Err(err) = crate::udp::run_command_server(control_tx, command_state).await {
+                warn!("Play UDP command server stopped: {}", err);
+            }
+        });
 
         info!(
             "Starting main emulation loop at {} fps{}",
@@ -234,14 +312,27 @@ impl PlaySession {
                 shutdown_reason = "frame cap reached";
                 break;
             }
+            while let Ok(event) = control_rx.try_recv() {
+                self.apply_control_event(event)?;
+                #[cfg(feature = "simulator")]
+                self.apply_scale_to_simulator_video(&mut simulator_video)?;
+                #[cfg(feature = "miyoo")]
+                self.apply_scale_to_miyoo_video(&mut miyoo_video)?;
+            }
+            if self.should_quit {
+                shutdown_reason = "quit command";
+                break;
+            }
 
             #[cfg(feature = "miyoo")]
             self.poll_platform_input(&mut platform).await;
-            self.core
-                .as_ref()
-                .ok_or_else(|| anyhow!("Core not loaded"))?
-                .run();
-            frames_run += 1;
+            if !self.paused {
+                self.core
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("Core not loaded"))?
+                    .run();
+                frames_run += 1;
+            }
             #[cfg(feature = "simulator")]
             if self.present_simulator_frame(&mut simulator_video)? {
                 shutdown_reason = "window closed";
@@ -253,20 +344,40 @@ impl PlaySession {
             self.present_miyoo_frame(&mut miyoo_video)?;
             next_frame_at += frame_interval;
 
+            if self.fast_forwarding {
+                tokio::task::yield_now().await;
+                continue;
+            }
+
             let sleep_until = tokio::time::Instant::from_std(next_frame_at);
-            let shutdown_requested = {
+            match {
                 #[cfg(unix)]
                 {
-                    wait_for_next_frame(sleep_until, &mut ctrl_c, &mut sigterm).await
+                    wait_for_next_frame_or_control(
+                        sleep_until,
+                        &mut ctrl_c,
+                        &mut sigterm,
+                        &mut control_rx,
+                    )
+                    .await
                 }
                 #[cfg(not(unix))]
                 {
-                    wait_for_next_frame(sleep_until, &mut ctrl_c).await
+                    wait_for_next_frame_or_control(sleep_until, &mut ctrl_c, &mut control_rx).await
                 }
-            };
-            if shutdown_requested {
-                shutdown_reason = "signal received";
-                break;
+            } {
+                LoopWait::Frame => {}
+                LoopWait::Signal => {
+                    shutdown_reason = "signal received";
+                    break;
+                }
+                LoopWait::Control(event) => {
+                    self.apply_control_event(event)?;
+                    #[cfg(feature = "simulator")]
+                    self.apply_scale_to_simulator_video(&mut simulator_video)?;
+                    #[cfg(feature = "miyoo")]
+                    self.apply_scale_to_miyoo_video(&mut miyoo_video)?;
+                }
             }
         }
 
@@ -281,16 +392,24 @@ impl PlaySession {
             shutdown_reason, frames_run, elapsed, avg_frame_time, target_fps
         );
         self.audio_producer = None;
+        command_server.abort();
         Ok(())
     }
 
     fn unload_game(&mut self) {
+        if self.core.is_some()
+            && self.config.autosave
+            && let Err(err) = self.save_state_slot(-1)
+        {
+            warn!("Failed to autosave state: {}", err);
+        }
         if let Some(core) = self.core.take() {
             if let Err(err) = self.save_sram(&core) {
                 warn!("Failed to save SRAM: {}", err);
             }
             core.unload_game();
         }
+        self.cleanup_extracted_rom();
     }
 
     fn load_sram(&self) -> Result<()> {
@@ -336,6 +455,10 @@ impl PlaySession {
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     fn save_state(&self) -> Result<()> {
+        self.save_state_slot(self.state_slot)
+    }
+
+    fn save_state_slot(&self, slot: i8) -> Result<()> {
         let core = self
             .core
             .as_ref()
@@ -351,37 +474,50 @@ impl PlaySession {
         }
 
         fs::create_dir_all(&self.paths.state_dir)?;
-        let path = self.paths.state_path(self.state_slot)?;
+        let path = self.paths.state_path(slot)?;
         fs::write(&path, data)?;
-        info!("Saved state slot {} to {:?}", self.state_slot, path);
+        info!("Saved state slot {} to {:?}", slot, path);
         Ok(())
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     fn load_state(&self) -> Result<()> {
+        self.load_state_slot(self.state_slot)
+    }
+
+    fn load_state_slot(&self, slot: i8) -> Result<()> {
         let core = self
             .core
             .as_ref()
             .ok_or_else(|| anyhow!("Core not loaded"))?;
-        let path = self.paths.state_path(self.state_slot)?;
+        let path = self.paths.state_path(slot)?;
         let data = fs::read(&path)?;
         if !core.unserialize(&data) {
             return Err(anyhow!("Core failed to load state"));
         }
 
-        info!("Loaded state slot {} from {:?}", self.state_slot, path);
+        info!("Loaded state slot {} from {:?}", slot, path);
         Ok(())
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-    fn select_state_slot(&mut self, slot: u8) -> Result<()> {
-        if slot > 9 {
+    fn select_state_slot(&mut self, slot: i8) -> Result<()> {
+        if !(-1..=9).contains(&slot) {
             return Err(anyhow!("Save state slot must be between 0 and 9"));
         }
 
         self.state_slot = slot;
+        self.command_state.set_state_slot(slot);
         info!("Selected state slot {}", slot);
         Ok(())
+    }
+
+    fn cleanup_extracted_rom(&mut self) {
+        if let Some(dir) = self.extracted_rom_dir.take()
+            && let Err(err) = fs::remove_dir_all(&dir)
+        {
+            warn!("Failed to remove extracted ROM dir {:?}: {}", dir, err);
+        }
     }
 
     #[cfg(feature = "simulator")]
@@ -457,13 +593,88 @@ impl PlaySession {
         }
     }
 
-    #[cfg(feature = "simulator")]
     fn apply_control_event(&mut self, event: ControlEvent) -> Result<()> {
         match event {
             ControlEvent::SaveState => self.save_state(),
             ControlEvent::LoadState => self.load_state(),
+            ControlEvent::SaveStateSlot(slot) => {
+                self.select_state_slot(slot)?;
+                self.save_state()
+            }
+            ControlEvent::LoadStateSlot(slot) => {
+                self.select_state_slot(slot)?;
+                self.load_state()
+            }
             ControlEvent::SelectStateSlot(slot) => self.select_state_slot(slot),
+            ControlEvent::StateSlotPlus => self.select_state_slot((self.state_slot + 1).min(9)),
+            ControlEvent::StateSlotMinus => self.select_state_slot((self.state_slot - 1).max(-1)),
+            ControlEvent::SetPaused(paused) => {
+                self.paused = paused;
+                Ok(())
+            }
+            ControlEvent::TogglePaused => {
+                self.paused = !self.paused;
+                Ok(())
+            }
+            ControlEvent::ToggleFastForward => {
+                self.fast_forwarding = !self.fast_forwarding;
+                if let Some(producer) = &mut self.audio_producer {
+                    producer.set_muted(self.fast_forwarding);
+                }
+                Ok(())
+            }
+            ControlEvent::SetFastForward(enabled) => {
+                self.fast_forwarding = enabled;
+                if let Some(producer) = &mut self.audio_producer {
+                    producer.set_muted(enabled);
+                }
+                Ok(())
+            }
+            ControlEvent::Reset => {
+                self.core
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("Core not loaded"))?
+                    .reset();
+                Ok(())
+            }
+            ControlEvent::Quit => {
+                self.should_quit = true;
+                Ok(())
+            }
+            ControlEvent::CycleScale => {
+                self.scale_mode = self.scale_mode.next();
+                info!("Selected scale mode: {:?}", self.scale_mode);
+                Ok(())
+            }
         }
+    }
+
+    #[cfg(feature = "simulator")]
+    fn apply_scale_to_simulator_video(&self, video: &mut SimulatorVideo) -> Result<()> {
+        let av_info = self
+            .av_info
+            .as_ref()
+            .ok_or_else(|| anyhow!("AV info not loaded"))?;
+        video.set_scale(
+            self.scale_mode,
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.geometry.aspect_ratio,
+        )
+    }
+
+    #[cfg(feature = "miyoo")]
+    fn apply_scale_to_miyoo_video(&self, video: &mut MiyooVideo) -> Result<()> {
+        let av_info = self
+            .av_info
+            .as_ref()
+            .ok_or_else(|| anyhow!("AV info not loaded"))?;
+        video.set_scale(
+            self.scale_mode,
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.geometry.aspect_ratio,
+        )
     }
 }
 
@@ -475,33 +686,83 @@ fn frame_interval(fps: f64) -> Result<Duration> {
     Ok(Duration::from_secs_f64(1.0 / fps))
 }
 
+fn is_zip_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("zip"))
+}
+
+fn find_zip_rom_index(
+    archive: &mut zip::ZipArchive<fs::File>,
+    valid_extensions: &str,
+) -> Result<usize> {
+    let valid_extensions: Vec<String> = valid_extensions
+        .split('|')
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| extension.to_ascii_lowercase())
+        .collect();
+
+    for index in 0..archive.len() {
+        let entry = archive.by_index(index)?;
+        if entry.is_dir() {
+            continue;
+        }
+        let Some(extension) = Path::new(entry.name())
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+        else {
+            continue;
+        };
+        if valid_extensions.is_empty()
+            || valid_extensions
+                .iter()
+                .any(|valid_extension| valid_extension == &extension)
+        {
+            return Ok(index);
+        }
+    }
+
+    Err(anyhow!("ZIP ROM contains no supported ROM file"))
+}
+
+enum LoopWait {
+    Frame,
+    Signal,
+    Control(ControlEvent),
+}
+
 #[cfg(unix)]
-async fn wait_for_next_frame<F>(
+async fn wait_for_next_frame_or_control<F>(
     deadline: tokio::time::Instant,
     ctrl_c: &mut std::pin::Pin<&mut F>,
     sigterm: &mut tokio::signal::unix::Signal,
-) -> bool
+    control_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>,
+) -> LoopWait
 where
     F: std::future::Future<Output = std::io::Result<()>>,
 {
     tokio::select! {
-        _ = tokio::time::sleep_until(deadline) => false,
-        _ = ctrl_c.as_mut() => true,
-        _ = sigterm.recv() => true,
+        _ = tokio::time::sleep_until(deadline) => LoopWait::Frame,
+        _ = ctrl_c.as_mut() => LoopWait::Signal,
+        _ = sigterm.recv() => LoopWait::Signal,
+        event = control_rx.recv() => event.map_or(LoopWait::Signal, LoopWait::Control),
     }
 }
 
 #[cfg(not(unix))]
-async fn wait_for_next_frame<F>(
+async fn wait_for_next_frame_or_control<F>(
     deadline: tokio::time::Instant,
     ctrl_c: &mut std::pin::Pin<&mut F>,
-) -> bool
+    control_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>,
+) -> LoopWait
 where
     F: std::future::Future<Output = std::io::Result<()>>,
 {
     tokio::select! {
-        _ = tokio::time::sleep_until(deadline) => false,
-        _ = ctrl_c.as_mut() => true,
+        _ = tokio::time::sleep_until(deadline) => LoopWait::Frame,
+        _ = ctrl_c.as_mut() => LoopWait::Signal,
+        event = control_rx.recv() => event.map_or(LoopWait::Signal, LoopWait::Control),
     }
 }
 

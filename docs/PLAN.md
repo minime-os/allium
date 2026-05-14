@@ -758,13 +758,13 @@ Expose scale cycling through UDP after Stage 4D scaling exists.
 
 ### Done when
 
-- [ ] Launcher → Play handoff works behind opt-in config on both targets
-- [ ] Missing/disabled config keeps RetroArch behavior
-- [ ] allium-menu UDP commands work for pause/save/load/FF/quit
-- [ ] ZIP ROMs play
-- [ ] Fast-forward toggle and hold mute audio
-- [ ] Autosave/autoload works
-- [ ] Basic scaling can be selected
+- [x] Launcher → Play handoff works behind opt-in config on both targets
+- [x] Missing/disabled config keeps RetroArch behavior
+- [x] allium-menu UDP commands work for pause/save/load/FF/quit
+- [x] ZIP ROMs play
+- [x] Fast-forward toggle and hold mute audio
+- [x] Autosave/autoload works
+- [x] Basic scaling can be selected
 
 ### Commit message suggestion
 

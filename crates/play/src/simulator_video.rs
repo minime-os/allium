@@ -130,6 +130,24 @@ impl SimulatorVideo {
         Ok(false)
     }
 
+    pub fn set_scale(
+        &mut self,
+        mode: ScaleMode,
+        source_width: u32,
+        source_height: u32,
+        aspect_ratio: f32,
+    ) -> Result<()> {
+        self.rect = calculate_scale_rect(
+            mode,
+            source_width,
+            source_height,
+            aspect_ratio,
+            self.app.width.get(),
+            self.app.height.get(),
+        )?;
+        Ok(())
+    }
+
     pub fn take_key_events(&mut self) -> Vec<KeyEvent> {
         std::mem::take(&mut self.app.key_events)
     }

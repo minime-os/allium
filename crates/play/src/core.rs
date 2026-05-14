@@ -40,6 +40,7 @@ struct CoreSymbols {
     retro_load_game: unsafe extern "C" fn(game: *const retro_game_info) -> bool, // Hand the selected ROM to the core.
     retro_unload_game: unsafe extern "C" fn(), // Release game-specific state while keeping the core loaded.
     retro_run: unsafe extern "C" fn(),         // Execute one emulation frame.
+    retro_reset: unsafe extern "C" fn(),       // Reset loaded content.
     retro_serialize_size: unsafe extern "C" fn() -> usize, // Ask how large a save state buffer must be.
     retro_serialize: unsafe extern "C" fn(data: *mut c_void, len: usize) -> bool, // Copy core state into a buffer.
     retro_unserialize: unsafe extern "C" fn(data: *const c_void, len: usize) -> bool, // Restore core state from a buffer.
@@ -82,6 +83,7 @@ impl CoreSymbols {
                 retro_load_game: load_symbol(lib, b"retro_load_game")?,
                 retro_unload_game: load_symbol(lib, b"retro_unload_game")?,
                 retro_run: load_symbol(lib, b"retro_run")?,
+                retro_reset: load_symbol(lib, b"retro_reset")?,
                 retro_serialize_size: load_symbol(lib, b"retro_serialize_size")?,
                 retro_serialize: load_symbol(lib, b"retro_serialize")?,
                 retro_unserialize: load_symbol(lib, b"retro_unserialize")?,
@@ -145,6 +147,10 @@ impl Core {
 
     pub fn run(&self) {
         unsafe { (self.symbols.retro_run)() };
+    }
+
+    pub fn reset(&self) {
+        unsafe { (self.symbols.retro_reset)() };
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]

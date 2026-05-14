@@ -4,6 +4,7 @@ compile_error!("pick `simulator` or `miyoo` feature");
 mod args;
 mod audio;
 mod callbacks;
+mod config;
 mod control;
 mod core;
 mod frame;
@@ -17,6 +18,7 @@ mod scale;
 mod session;
 #[cfg(feature = "simulator")]
 mod simulator_video;
+mod udp;
 
 use anyhow::Result;
 use args::Args;

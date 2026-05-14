@@ -8,7 +8,9 @@ use common::database::Database;
 use common::game_info::GameInfo;
 use serde::Deserialize;
 
-use common::constants::{ALLIUM_CONFIG_CONSOLES, ALLIUM_CONFIG_CORES, ALLIUM_RETROARCH};
+use common::constants::{
+    ALLIUM_CONFIG_CONSOLES, ALLIUM_CONFIG_CORES, ALLIUM_CONFIG_PLAY, ALLIUM_PLAY, ALLIUM_RETROARCH,
+};
 use log::{debug, error, trace};
 
 use crate::entry::game::Game;
@@ -71,6 +73,17 @@ impl fmt::Display for Core {
 #[derive(Debug, Deserialize)]
 struct CoresConfig {
     cores: HashMap<CoreName, Core>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlayConfigFile {
+    play: Option<PlayConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlayConfig {
+    #[serde(default)]
+    enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -211,13 +224,16 @@ impl ConsoleMapper {
             error!("Core \"{}\" does not exist.", core_name);
             return Ok(None);
         };
+        let play_enabled = play_enabled()?;
         let game_info = match &core.core {
             CoreType::RetroArch(libretro_core) => GameInfo::new(
                 game.name.clone(),
                 game.path.clone(),
                 core_name.clone(),
                 image,
-                if disable_savestate_auto_load {
+                if play_enabled {
+                    ALLIUM_PLAY.display().to_string()
+                } else if disable_savestate_auto_load {
                     ALLIUM_RETROARCH
                         .parent()
                         .unwrap()
@@ -227,7 +243,25 @@ impl ConsoleMapper {
                 } else {
                     ALLIUM_RETROARCH.display().to_string()
                 },
-                vec![libretro_core.to_string(), game.path.display().to_string()],
+                if play_enabled {
+                    vec![
+                        "--core".to_string(),
+                        ALLIUM_RETROARCH
+                            .parent()
+                            .unwrap()
+                            .join(".retroarch")
+                            .join("cores")
+                            .join(format!("{libretro_core}_libretro.so"))
+                            .display()
+                            .to_string(),
+                        "--rom".to_string(),
+                        game.path.display().to_string(),
+                        "--core-id".to_string(),
+                        core_name.clone(),
+                    ]
+                } else {
+                    vec![libretro_core.to_string(), game.path.display().to_string()]
+                },
                 true,
                 core.swap,
             ),
@@ -253,6 +287,25 @@ impl ConsoleMapper {
             .map(|s| s.to_string())
             .unwrap_or_else(|| core.to_string())
     }
+}
+
+fn play_enabled() -> Result<bool> {
+    let contents = match std::fs::read_to_string(&*ALLIUM_CONFIG_PLAY) {
+        Ok(contents) => Some(contents),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(err) => return Err(err).with_context(|| ALLIUM_CONFIG_PLAY.display().to_string()),
+    };
+
+    play_enabled_from_str(contents.as_deref())
+}
+
+fn play_enabled_from_str(contents: Option<&str>) -> Result<bool> {
+    let Some(contents) = contents else {
+        return Ok(false);
+    };
+    let config: PlayConfigFile = toml::from_str(contents)?;
+
+    Ok(config.play.is_some_and(|play| play.enabled))
 }
 
 #[cfg(test)]
@@ -397,5 +450,16 @@ mod tests {
                 assert!(cores.contains_key(&core), "Core {} not found", core);
             }
         }
+    }
+
+    #[test]
+    fn play_config_defaults_to_disabled_when_missing_or_false() {
+        assert!(!play_enabled_from_str(None).unwrap());
+        assert!(!play_enabled_from_str(Some("[play]\nenabled = false\n")).unwrap());
+    }
+
+    #[test]
+    fn play_config_enables_play_only_when_true() {
+        assert!(play_enabled_from_str(Some("[play]\nenabled = true\n")).unwrap());
     }
 }

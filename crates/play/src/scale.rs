@@ -16,6 +16,14 @@ impl ScaleMode {
             _ => Err(anyhow!("--scale must be native, aspect, or fullscreen")),
         }
     }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Native => Self::Aspect,
+            Self::Aspect => Self::Fullscreen,
+            Self::Fullscreen => Self::Native,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,5 +178,12 @@ mod tests {
         let err = calculate_scale_rect(ScaleMode::Aspect, 0, 144, 0.0, 640, 480).unwrap_err();
 
         assert_eq!(err.to_string(), "Scale source size must be non-zero");
+    }
+
+    #[test]
+    fn scale_modes_cycle_in_display_order() {
+        assert_eq!(ScaleMode::Native.next(), ScaleMode::Aspect);
+        assert_eq!(ScaleMode::Aspect.next(), ScaleMode::Fullscreen);
+        assert_eq!(ScaleMode::Fullscreen.next(), ScaleMode::Native);
     }
 }

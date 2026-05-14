@@ -186,20 +186,32 @@ impl std::str::FromStr for RetroArchCommand {
             "GET_DISK_COUNT" => Ok(RetroArchCommand::GetDiskCount),
             "GET_DISK_SLOT" => Ok(RetroArchCommand::GetDiskSlot),
             "SET_DISK_SLOT" => {
-                let slot = parts.get(1).and_then(|s| s.parse().ok()).ok_or("Invalid slot")?;
+                let slot = parts
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .ok_or("Invalid slot")?;
                 Ok(RetroArchCommand::SetDiskSlot(slot))
             }
             "GET_STATE_SLOT" => Ok(RetroArchCommand::GetStateSlot),
             "SET_STATE_SLOT" => {
-                let slot = parts.get(1).and_then(|s| s.parse().ok()).ok_or("Invalid slot")?;
+                let slot = parts
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .ok_or("Invalid slot")?;
                 Ok(RetroArchCommand::SetStateSlot(slot))
             }
             "SAVE_STATE_SLOT" => {
-                let slot = parts.get(1).and_then(|s| s.parse().ok()).ok_or("Invalid slot")?;
+                let slot = parts
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .ok_or("Invalid slot")?;
                 Ok(RetroArchCommand::SaveStateSlot(slot))
             }
             "LOAD_STATE_SLOT" => {
-                let slot = parts.get(1).and_then(|s| s.parse().ok()).ok_or("Invalid slot")?;
+                let slot = parts
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .ok_or("Invalid slot")?;
                 Ok(RetroArchCommand::LoadStateSlot(slot))
             }
             _ => Err(format!("Unknown command: {}", parts[0])),
@@ -214,9 +226,18 @@ mod tests {
 
     #[test]
     fn test_parse_commands() {
-        assert!(matches!(RetroArchCommand::from_str("QUIT"), Ok(RetroArchCommand::Quit)));
-        assert!(matches!(RetroArchCommand::from_str("PAUSE"), Ok(RetroArchCommand::Pause)));
-        assert!(matches!(RetroArchCommand::from_str("SET_STATE_SLOT 1"), Ok(RetroArchCommand::SetStateSlot(1))));
+        assert!(matches!(
+            RetroArchCommand::from_str("QUIT"),
+            Ok(RetroArchCommand::Quit)
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("PAUSE"),
+            Ok(RetroArchCommand::Pause)
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_STATE_SLOT 1"),
+            Ok(RetroArchCommand::SetStateSlot(1))
+        ));
     }
 
     #[test]

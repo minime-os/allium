@@ -52,6 +52,7 @@ lazy_static! {
     // Config
     pub static ref ALLIUM_CONFIG_CONSOLES: PathBuf = ALLIUM_BASE_DIR.join("config/consoles.toml");
     pub static ref ALLIUM_CONFIG_CORES: PathBuf = ALLIUM_BASE_DIR.join("config/cores.toml");
+    pub static ref ALLIUM_CONFIG_PLAY: PathBuf = ALLIUM_BASE_DIR.join("config/play.toml");
 
     // State
     pub static ref ALLIUMD_STATE: PathBuf = ALLIUM_BASE_DIR.join("state/alliumd.json");
@@ -81,6 +82,7 @@ lazy_static! {
     // Binaries & Scripts
     pub static ref ALLIUM_LAUNCHER: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-launcher");
     pub static ref ALLIUM_MENU: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-menu");
+    pub static ref ALLIUM_PLAY: PathBuf = ALLIUM_BASE_DIR.join("bin/play");
     pub static ref ALLIUM_RETROARCH: PathBuf = ALLIUM_BASE_DIR.join("cores/retroarch/launch.sh");
 }
 

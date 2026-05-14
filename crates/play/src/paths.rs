@@ -44,14 +44,17 @@ impl PlayPaths {
         self.save_dir.join(format!("{}.srm", self.rom_stem()))
     }
 
-    pub fn state_path(&self, slot: u8) -> Result<PathBuf> {
-        if slot > 9 {
+    pub fn state_path(&self, slot: i8) -> Result<PathBuf> {
+        if !(-1..=9).contains(&slot) {
             return Err(anyhow!("Save state slot must be between 0 and 9"));
         }
 
-        Ok(self
-            .state_dir
-            .join(format!("{}.state{}", self.rom_stem(), slot)))
+        let file_name = if slot == -1 {
+            format!("{}.auto.state", self.rom_stem())
+        } else {
+            format!("{}.state{}", self.rom_stem(), slot)
+        };
+        Ok(self.state_dir.join(file_name))
     }
 
     fn rom_stem(&self) -> String {
@@ -150,6 +153,13 @@ mod tests {
         let err = fceumm_paths().state_path(10).unwrap_err();
 
         assert_eq!(err.to_string(), "Save state slot must be between 0 and 9");
+    }
+
+    #[test]
+    fn state_slot_minus_one_uses_autosave_path() {
+        let path = fceumm_paths().state_path(-1).unwrap();
+
+        assert!(path.ends_with("Alter Ego (World).auto.state"));
     }
 
     #[test]
