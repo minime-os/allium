@@ -21,13 +21,17 @@ use args::Args;
 use session::PlaySession;
 
 // Tokio lets the main emulation loop react to external events such as low-battery autosave.
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     logs::init()?;
 
-    let args = Args::from_env()?;
-    let mut session = PlaySession::new(args);
-    session.run().await?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
 
-    Ok(())
+    rt.block_on(async {
+        let args = Args::from_env()?;
+        let mut session = PlaySession::new(args);
+        session.run().await?;
+        Ok(())
+    })
 }

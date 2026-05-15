@@ -9,6 +9,7 @@ pub mod display;
 pub mod game_info;
 pub mod geom;
 pub mod locale;
+pub mod log;
 pub mod platform;
 pub mod power;
 pub mod resources;

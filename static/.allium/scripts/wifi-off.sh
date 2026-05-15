@@ -8,4 +8,4 @@ dir=$(dirname "$0")
 killall wpa_supplicant > /dev/null 2>&1 &
 killall udhcpc > /dev/null 2>&1 &
 ifconfig wlan0 down
-/customer/app/axp_test wifioff
+[ ! -x /customer/app/axp_test ] || /customer/app/axp_test wifioff

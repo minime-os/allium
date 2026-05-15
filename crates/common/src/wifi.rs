@@ -89,7 +89,7 @@ impl WiFiSettings {
     fn load_wpa_supplicant_conf() -> Option<Self> {
         #[cfg(feature = "miyoo")]
         {
-            let data = fs::read_to_string("/appconfigs/wpa_supplicant.conf").ok()?;
+            let data = fs::read_to_string(wpa_supplicant_conf()).ok()?;
 
             let ssid_index = data.find("ssid=\"")?;
             let ssid = &data[ssid_index + 6..];
@@ -115,7 +115,7 @@ impl WiFiSettings {
     fn update_wpa_supplicant_conf(&self) -> Result<()> {
         #[cfg(feature = "miyoo")]
         {
-            let mut file = File::create("/appconfigs/wpa_supplicant.conf")?;
+            let mut file = File::create(wpa_supplicant_conf())?;
             write!(
                 file,
                 r#"ctrl_interface=/var/run/wpa_supplicant
@@ -510,4 +510,9 @@ pub fn ip_address() -> Option<String> {
 
     #[cfg(not(any(feature = "miyoo", feature = "simulator")))]
     return None;
+}
+
+#[cfg(feature = "miyoo")]
+fn wpa_supplicant_conf() -> &'static str {
+    "/appconfigs/wpa_supplicant.conf"
 }

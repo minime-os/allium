@@ -4,7 +4,7 @@ Play is an Allium-native libretro runtime. It lives inside Allium, shares Allium
 
 This plan walks you through building Play from scratch, stage by stage, until it can become an opt-in daily-use runtime on a Miyoo Mini Plus. PicoArch and MinArch are references for behavior, edge cases, and pitfalls only. Do not copy their global-state C architecture, and do not treat MinArch/MiniUI save-state compatibility as a requirement.
 
-Verified target: Miyoo Mini Plus. Design target: small backend seams that can support a future RG35xxSP port when Allium is ported there. Do not add RG35xxSP code now.
+Verified target: Miyoo Mini Plus.
 
 It is a learning plan, not a spec. Each stage has a clear goal, a small list of new things to learn, manual + automated checks, and a commit. Stages build on each other — don't skip ahead.
 

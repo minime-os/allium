@@ -35,7 +35,7 @@ impl App {
         } else {
             AppConfig {
                 label: directory
-                    .file_prefix()
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("Unknown App")
                     .to_string(),

@@ -11,7 +11,7 @@ use serde::Deserialize;
 use common::constants::{
     ALLIUM_CONFIG_CONSOLES, ALLIUM_CONFIG_CORES, ALLIUM_CONFIG_PLAY, ALLIUM_PLAY, ALLIUM_RETROARCH,
 };
-use log::{debug, error, trace};
+use log::{debug, error, info, trace};
 
 use crate::entry::game::Game;
 
@@ -276,6 +276,10 @@ impl ConsoleMapper {
                 core.swap,
             ),
         };
+        info!(
+            "Launching game with GameInfo: name={}, core={}, command={}, args={:?}",
+            game_info.name, game_info.core, game_info.command, game_info.args
+        );
         debug!("Saving game info: {:?}", game_info);
         game_info.save()?;
         Ok(Some(Command::Exec(game_info.command())))
