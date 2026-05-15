@@ -1,0 +1,12 @@
+#!/bin/sh
+
+case "$1" in
+	start|stop|restart|reload)
+		# Disabled to reduce boot overhead.
+		exit 0
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload}"
+		exit 1
+		;;
+esac

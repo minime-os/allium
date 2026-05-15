@@ -2,7 +2,7 @@ pub mod convert;
 pub mod frame;
 pub mod ppm;
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 pub mod miyoo;
 #[cfg(feature = "simulator")]
 pub mod simulator;

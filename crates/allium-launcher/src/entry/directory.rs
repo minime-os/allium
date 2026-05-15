@@ -209,7 +209,7 @@ impl Directory {
         let gamelist = self.path.join("gamelist.xml");
         if should_parse_gamelist(&gamelist)? {
             debug!("Parsing gamelist.xml at {:?}", &gamelist);
-            #[cfg(feature = "miyoo")]
+            #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
             {
                 std::process::Command::new("show")
                     .arg("--darken")
@@ -263,7 +263,7 @@ impl Directory {
             let gamelist = self.path.join("miyoogamelist.xml");
             if should_parse_gamelist(&gamelist)? {
                 debug!("Parsing miyoogamelist.xml at {:?}", &gamelist);
-                #[cfg(feature = "miyoo")]
+                #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
                 {
                     std::process::Command::new("show")
                         .arg("--darken")

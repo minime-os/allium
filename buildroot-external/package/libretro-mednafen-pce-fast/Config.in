@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_MEDNAFEN_PCE_FAST
+	bool "libretro-mednafen-pce-fast"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Extra PCE core package for Allium.

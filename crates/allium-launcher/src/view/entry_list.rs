@@ -499,13 +499,13 @@ where
                         }
                         MenuEntry::RepopulateDatabase => {
                             commands.send(Command::Redraw).await?;
-                            #[cfg(not(feature = "miyoo"))]
+                            #[cfg(not(any(feature = "miyoo", feature = "rg35xxsp")))]
                             {
                                 let message = self.res.get::<Locale>().t("populating-database");
                                 commands.send(Command::Toast(message, None)).await?;
                             }
                             commands.send(Command::PopulateDb).await?;
-                            #[cfg(not(feature = "miyoo"))]
+                            #[cfg(not(any(feature = "miyoo", feature = "rg35xxsp")))]
                             {
                                 commands
                                     .send(Command::Toast(

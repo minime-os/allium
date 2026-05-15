@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_POKEMINI
+	bool "libretro-pokemini"
+	default n
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Extra Pokemon mini core package for Allium.

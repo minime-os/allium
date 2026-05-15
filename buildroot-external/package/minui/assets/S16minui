@@ -1,0 +1,94 @@
+#!/bin/sh
+
+DAEMON=/usr/libexec/minui/session
+PIDFILE=/var/run/minui-session.pid
+INITLOG=/tmp/minui-session-init.log
+ALSACTL=/usr/sbin/alsactl
+AMIXER=/usr/bin/amixer
+# ALSA state remains system-owned because non-MinUI init scripts also use it.
+ALSA_STATE=/mnt/sdcard/system/audio/alsa.state
+
+uptime_ms() {
+	awk '{ printf "%d", ($1 * 1000) }' /proc/uptime 2>/dev/null || echo 0
+}
+
+log_init() {
+	echo "$(date +"%F %T") $*" >> "$INITLOG"
+}
+
+init_alsa_defaults() {
+	[ -x "$AMIXER" ] || return 0
+	"$AMIXER" -c 0 sset Speaker on >/tmp/amixer-init.log 2>&1 || true
+	"$AMIXER" -c 0 sset DAC 100% unmute >>/tmp/amixer-init.log 2>&1 || true
+	"$AMIXER" -c 0 sset "Line Out" 40% unmute >>/tmp/amixer-init.log 2>&1 || true
+}
+
+restore_alsa() {
+	if [ -x "$ALSACTL" ] && [ -s "$ALSA_STATE" ]; then
+		"$ALSACTL" -f "$ALSA_STATE" restore >/tmp/alsactl-restore.log 2>&1 || true
+		return 0
+	fi
+
+	# First boot (no saved state) or missing alsactl: apply safe mixer defaults.
+	init_alsa_defaults
+	store_alsa
+}
+
+store_alsa() {
+	[ -x "$ALSACTL" ] || return 0
+	mkdir -p "$(dirname "$ALSA_STATE")"
+	"$ALSACTL" -f "$ALSA_STATE" store >/tmp/alsactl-store.log 2>&1 || true
+}
+
+start() {
+	printf "Starting MinUI: "
+	if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+		echo "already running"
+		return 0
+	fi
+
+	start_ms="$(uptime_ms)"
+	log_init "stage=s16_start begin uptime_ms=${start_ms}"
+
+	alsa_ms="$(uptime_ms)"
+	restore_alsa
+	alsa_done_ms="$(uptime_ms)"
+	log_init "stage=restore_alsa duration_ms=$((alsa_done_ms - alsa_ms)) uptime_ms=${alsa_done_ms}"
+
+	"$DAEMON" >>"$INITLOG" 2>&1 &
+	PID=$!
+	echo "$PID" > "$PIDFILE"
+	done_ms="$(uptime_ms)"
+	log_init "stage=s16_start end pid=${PID} duration_ms=$((done_ms - start_ms)) uptime_ms=${done_ms}"
+	echo "OK"
+	return 0
+}
+
+stop() {
+	printf "Stopping MinUI: "
+	if [ -f "$PIDFILE" ]; then
+		kill "$(cat "$PIDFILE")" 2>/dev/null || true
+		rm -f "$PIDFILE"
+	fi
+	killall minui minarch keymon hdmimon.sh 2>/dev/null || true
+	store_alsa
+	echo "OK"
+	return 0
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac

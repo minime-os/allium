@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_GAMBATTE
+	bool "libretro-gambatte"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Base GB/GBC core package for Allium (scaffold).

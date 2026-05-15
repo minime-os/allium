@@ -254,7 +254,7 @@ pub async fn download_update_with_progress(
     event_tx: Option<mpsc::UnboundedSender<DownloadEvent>>,
 ) -> Result<()> {
     // Check if there's enough space (need 300MB)
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     {
         let output = std::process::Command::new("df")
             .args(["-m", "/mnt/SDCARD"])

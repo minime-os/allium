@@ -1,0 +1,99 @@
+# Shared single-core libretro build helper for Allium Buildroot wrappers.
+# Invoked from package recipes via: $(MAKE) -f this-file ... build
+
+CORE_NAME ?=
+CORE_REPO ?=
+CORE_BRANCH ?=
+CORE_HASH ?=
+CORE_MAKEFILE ?=
+CORE_BUILD_PATH ?=
+CORE_OUTPUT_NAME ?=
+CORE_PLATFORM ?= unix
+CORE_EXTRA_VARS ?=
+CORE_CFLAGS ?=
+CORE_CXXFLAGS ?=
+CORE_LDFLAGS ?=
+WORKDIR ?= .
+PATCH_DIR ?=
+PATCH ?= git apply
+
+ifeq ($(strip $(CORE_NAME)),)
+$(error CORE_NAME is required)
+endif
+
+ifeq ($(strip $(CORE_REPO)),)
+override CORE_REPO := https://github.com/libretro/$(CORE_NAME)
+endif
+
+ifeq ($(strip $(CORE_BUILD_PATH)),)
+override CORE_BUILD_PATH := $(CORE_NAME)
+endif
+
+ifeq ($(strip $(CORE_OUTPUT_NAME)),)
+override CORE_OUTPUT_NAME := $(CORE_NAME)_libretro.so
+endif
+
+ifeq ($(strip $(CORE_PLATFORM)),)
+override CORE_PLATFORM := unix
+endif
+
+ifeq ($(CORE_PLATFORM),rg35xx)
+$(error platform=rg35xx is legacy ARMv7; use aarch64/arm64/h5/unix for RG35xxSP Buildroot)
+endif
+
+WORK_SRC_DIR := $(WORKDIR)/src
+CORE_SRC_DIR := $(WORK_SRC_DIR)/$(CORE_NAME)
+CORE_BUILD_DIR := $(WORK_SRC_DIR)/$(CORE_BUILD_PATH)
+CORE_OUT_DIR := $(WORKDIR)/output
+CORE_PATCH_MARKER := $(CORE_SRC_DIR)/.patched
+CORE_REF_FILE := $(CORE_SRC_DIR)/.simon-source-ref
+
+CORE_MAKE_CMD = $(MAKE) $(if $(strip $(CORE_MAKEFILE)),-f $(CORE_MAKEFILE)) platform=$(CORE_PLATFORM) $(CORE_EXTRA_VARS)
+
+.PHONY: build prepare fetch patch clean nuke status resolve
+
+fetch:
+	@mkdir -p "$(WORK_SRC_DIR)"
+	@test ! -e "$(CORE_SRC_DIR)" || test -d "$(CORE_SRC_DIR)/.git" || (echo "ERROR: $(CORE_SRC_DIR) exists but is not a git checkout; remove it or run nuke" >&2; false)
+	@test ! -d "$(CORE_SRC_DIR)/.git" || (echo "fetch: source already present at $(CORE_SRC_DIR)"; $(MAKE) --no-print-directory -f $(lastword $(MAKEFILE_LIST)) status CORE_NAME="$(CORE_NAME)" CORE_REPO="$(CORE_REPO)" CORE_BRANCH="$(CORE_BRANCH)" CORE_HASH="$(CORE_HASH)" CORE_MAKEFILE="$(CORE_MAKEFILE)" CORE_BUILD_PATH="$(CORE_BUILD_PATH)" CORE_OUTPUT_NAME="$(CORE_OUTPUT_NAME)" CORE_PLATFORM="$(CORE_PLATFORM)" CORE_EXTRA_VARS="$(CORE_EXTRA_VARS)" WORKDIR="$(WORKDIR)" PATCH_DIR="$(PATCH_DIR)"; exit 0)
+	cd "$(WORK_SRC_DIR)" && git clone --depth 1 $(if $(strip $(CORE_BRANCH)),--branch $(CORE_BRANCH),) --recursive "$(CORE_REPO)" "$(CORE_NAME)"
+	$(if $(strip $(CORE_HASH)),cd "$(CORE_SRC_DIR)" && git fetch --depth=1 origin $(CORE_HASH) && git checkout $(CORE_HASH) && git submodule update --init --recursive && true,)
+	@{ \
+		echo "mode=$(if $(strip $(CORE_HASH)),hash,$(if $(strip $(CORE_BRANCH)),branch,default-branch))"; \
+		echo "ref=$(if $(strip $(CORE_HASH)),$(CORE_HASH),$(if $(strip $(CORE_BRANCH)),$(CORE_BRANCH),HEAD))"; \
+		printf 'commit='; cd "$(CORE_BUILD_DIR)" && git rev-parse HEAD; \
+	} > "$(CORE_REF_FILE)"
+
+$(CORE_PATCH_MARKER):
+	@test -d "$(CORE_SRC_DIR)/.git" || $(MAKE) --no-print-directory -f $(lastword $(MAKEFILE_LIST)) fetch CORE_NAME="$(CORE_NAME)" CORE_REPO="$(CORE_REPO)" CORE_BRANCH="$(CORE_BRANCH)" CORE_HASH="$(CORE_HASH)" CORE_MAKEFILE="$(CORE_MAKEFILE)" CORE_BUILD_PATH="$(CORE_BUILD_PATH)" CORE_OUTPUT_NAME="$(CORE_OUTPUT_NAME)" CORE_PLATFORM="$(CORE_PLATFORM)" CORE_EXTRA_VARS="$(CORE_EXTRA_VARS)" WORKDIR="$(WORKDIR)" PATCH_DIR="$(PATCH_DIR)"
+	@if [ -f "$(CORE_PATCH_MARKER)" ]; then exit 0; fi
+	@if [ -n "$(strip $(PATCH_DIR))" ] && [ -d "$(PATCH_DIR)" ]; then \
+		for patch in $(sort $(wildcard $(PATCH_DIR)/*.patch)); do \
+			echo "Applying $$patch"; \
+			cd "$(CORE_SRC_DIR)" && $(PATCH) -p1 < "$$patch"; \
+		done; \
+	fi
+	@touch "$(CORE_PATCH_MARKER)"
+
+patch: $(CORE_PATCH_MARKER)
+prepare: patch
+
+build: prepare
+	@mkdir -p "$(CORE_OUT_DIR)"
+	cd "$(CORE_BUILD_DIR)" && CFLAGS="$(CORE_CFLAGS)" CXXFLAGS="$(CORE_CXXFLAGS)" LDFLAGS="$(CORE_LDFLAGS)" $(CORE_MAKE_CMD)
+	cp -f "$(CORE_BUILD_DIR)/$(CORE_OUTPUT_NAME)" "$(CORE_OUT_DIR)/$(CORE_NAME)_libretro.so"
+
+status:
+	@test ! -f "$(CORE_REF_FILE)" || cat "$(CORE_REF_FILE)"
+	@if [ -d "$(CORE_SRC_DIR)/.git" ]; then cd "$(CORE_SRC_DIR)" && git show --oneline -s; fi
+
+resolve:
+	@echo "$(CORE_NAME): mode=$(if $(strip $(CORE_HASH)),hash,$(if $(strip $(CORE_BRANCH)),branch,default-branch)) ref=$(if $(strip $(CORE_HASH)),$(CORE_HASH),$(if $(strip $(CORE_BRANCH)),$(CORE_BRANCH),HEAD))"
+	@if [ -d "$(CORE_SRC_DIR)/.git" ]; then cd "$(CORE_SRC_DIR)" && git show --oneline -s; fi
+
+clean:
+	@if [ -d "$(CORE_BUILD_DIR)" ]; then cd "$(CORE_BUILD_DIR)" && $(CORE_MAKE_CMD) clean || true; fi
+	rm -f "$(CORE_OUT_DIR)/$(CORE_NAME)_libretro.so"
+
+nuke:
+	rm -rf "$(WORKDIR)"

@@ -1,0 +1,16 @@
+config BR2_PACKAGE_MINUI
+	bool "minui"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	select BR2_PACKAGE_SDL2
+	select BR2_PACKAGE_SDL2_IMAGE
+	select BR2_PACKAGE_LIBPNG
+	select BR2_PACKAGE_SDL2_TTF
+	select BR2_PACKAGE_FREETYPE
+	select BR2_PACKAGE_ALSA_LIB
+	select BR2_PACKAGE_ZLIB
+	select BR2_PACKAGE_LZ4
+	select BR2_PACKAGE_DBUS
+	select BR2_PACKAGE_LIBRETRO_COMMON
+	help
+	  Upstream MinUI frontend package for the RG35xxSP Buildroot image.

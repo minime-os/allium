@@ -1,0 +1,66 @@
+#!/bin/sh
+
+PATH="/usr/sbin:/sbin:/usr/bin:/bin"
+
+MIN_VALID_EPOCH="${RTC_RESTORE_MIN_EPOCH:-1577836800}" # 2020-01-01 UTC
+PREFERRED_RTC_SUBSTR="${RTC_RESTORE_MATCH:-pcf8563}"
+
+find_preferred_rtc() {
+	for r in /sys/class/rtc/rtc*; do
+		[ -d "$r" ] || continue
+		if [ -r "$r/name" ] && grep -qi "$PREFERRED_RTC_SUBSTR" "$r/name"; then
+			echo "/dev/$(basename "$r")"
+			return 0
+		fi
+	done
+	return 1
+}
+
+clock_is_sane() {
+	now="$(date +%s 2>/dev/null || echo 0)"
+	[ "$now" -ge "$MIN_VALID_EPOCH" ]
+}
+
+start() {
+	printf "%s" "Restoring RTC (preferred external): "
+
+	if clock_is_sane; then
+		echo "skipped (clock already sane)"
+		return 0
+	fi
+
+	rtc_dev="$(find_preferred_rtc 2>/dev/null || true)"
+	if [ -z "$rtc_dev" ] || [ ! -e "$rtc_dev" ]; then
+		echo "no preferred rtc"
+		return 0
+	fi
+
+	if hwclock -f "$rtc_dev" -s >/dev/null 2>&1; then
+		if clock_is_sane; then
+			echo "OK ($rtc_dev)"
+			return 0
+		fi
+		echo "read but still unsane ($rtc_dev)"
+		return 0
+	fi
+
+	echo "failed ($rtc_dev)"
+	return 0
+}
+
+stop() {
+	return 0
+}
+
+case "$1" in
+	start|stop)
+		"$1"
+		;;
+	restart)
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac

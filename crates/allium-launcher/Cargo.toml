@@ -10,6 +10,7 @@ license = "MIT"
 [features]
 simulator = ["common/simulator"]
 miyoo = ["common/miyoo"]
+rg35xxsp = ["common/rg35xxsp"]
 debug-ui = ["common/debug-ui"] # Draw bounding boxes
 debug-ui-redraw = [] # Show only redraws
 

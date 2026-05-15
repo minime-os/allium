@@ -171,12 +171,12 @@ impl AlliumLauncher<DefaultPlatform> {
                 self.view.save()?;
                 self.display.clear(Color::new(0, 0, 0))?;
                 self.display.flush()?;
-                #[cfg(feature = "miyoo")]
+                #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
                 {
                     use std::os::unix::process::CommandExt;
                     let _ = cmd.exec();
                 }
-                #[cfg(not(feature = "miyoo"))]
+                #[cfg(not(any(feature = "miyoo", feature = "rg35xxsp")))]
                 {
                     #[cfg(unix)]
                     {
@@ -261,7 +261,7 @@ impl AlliumLauncher<DefaultPlatform> {
                 self.view.set_should_draw();
             }
             Command::PopulateDb => {
-                #[cfg(feature = "miyoo")]
+                #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
                 {
                     std::process::Command::new("show")
                         .arg("--clear")
@@ -294,7 +294,7 @@ impl AlliumLauncher<DefaultPlatform> {
                 }
 
                 while let Some(dir) = queue.pop_front() {
-                    #[cfg(feature = "miyoo")]
+                    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
                     {
                         std::process::Command::new("show")
                             .arg("--clear")

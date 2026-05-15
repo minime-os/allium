@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_MGBA
+	bool "libretro-mgba"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  mGBA core package for Allium.

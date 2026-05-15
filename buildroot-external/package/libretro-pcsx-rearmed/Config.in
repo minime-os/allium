@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_PCSX_REARMED
+	bool "libretro-pcsx-rearmed"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Base PS1 core package for Allium (scaffold).

@@ -1,0 +1,13 @@
+#!/bin/sh
+
+case "$1" in
+	start)
+		for mmc in mmcblk0 mmcblk1; do
+			if [ -e /sys/block/$mmc/queue/read_ahead_kb ]; then
+				echo 2048 > /sys/block/$mmc/queue/read_ahead_kb
+			fi
+		done
+		sysctl -w vm.swappiness=10 >/dev/null 2>&1
+		sysctl -w vm.dirty_writeback_centisecs=1000 >/dev/null 2>&1
+		;;
+esac

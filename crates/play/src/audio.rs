@@ -326,13 +326,13 @@ fn build_cpal_stream_u16(
         .context("Failed to build u16 cpal output stream")
 }
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 pub struct MiyooAudio {
     running: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 impl MiyooAudio {
     pub fn new(sample_rate: u32, consumer: AudioConsumer) -> Result<Self> {
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -353,7 +353,7 @@ impl MiyooAudio {
     }
 }
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 impl Drop for MiyooAudio {
     fn drop(&mut self) {
         self.running
@@ -364,7 +364,7 @@ impl Drop for MiyooAudio {
     }
 }
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 fn run_alsa_thread(
     sample_rate: u32,
     mut consumer: AudioConsumer,

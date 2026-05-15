@@ -1,0 +1,51 @@
+[cores.fake08]
+retroarch = "fake08"
+name = "FAKE-08"
+
+[cores.fceumm]
+retroarch = "fceumm"
+name = "FCEUmm"
+
+[cores.gambatte]
+retroarch = "gambatte"
+name = "Gambatte"
+
+[cores.gpsp]
+retroarch = "gpsp"
+name = "gpSP"
+
+[cores.mednafen_pce_fast]
+retroarch = "mednafen_pce_fast"
+name = "Beetle PCE Fast"
+
+[cores.mednafen_supafaust]
+retroarch = "mednafen_supafaust"
+name = "Supafaust"
+
+[cores.mednafen_vb]
+retroarch = "mednafen_vb"
+name = "Beetle VB"
+
+[cores.mgba]
+retroarch = "mgba"
+name = "mGBA"
+
+[cores.pcsx_rearmed]
+retroarch = "pcsx_rearmed"
+name = "PCSX-ReARMed"
+
+[cores.picodrive]
+retroarch = "picodrive"
+name = "PicoDrive"
+
+[cores.pokemini]
+retroarch = "pokemini"
+name = "PokeMini"
+
+[cores.race]
+retroarch = "race"
+name = "RACE"
+
+[cores.snes9x2005_plus]
+retroarch = "snes9x2005_plus"
+name = "Snes9x 2005 Plus"

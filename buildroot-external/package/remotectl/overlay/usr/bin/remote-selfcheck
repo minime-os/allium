@@ -1,0 +1,148 @@
+#!/bin/sh
+
+OUT_DIR=/mnt/sdcard/system/logs/remotectl
+MODE=basic
+ENTER_INPUT=0
+TEST_EXIT=1
+FAILS=0
+
+usage() {
+	cat <<'EOF'
+Usage:
+  remote-selfcheck [basic]
+  remote-selfcheck input [--enter-input] [--no-exit]
+
+Notes:
+  - `input` mode is for validating remotectl reliability against the MinUI input app.
+  - `input` mode assumes you are already in the Input app unless `--enter-input` is provided.
+  - `--enter-input` is a best-effort navigation helper (uses MENU -> Settings -> Input).
+EOF
+}
+
+log() {
+	printf '%s\n' "$*"
+}
+
+run_step() {
+	_name="$1"
+	shift
+	log "RUN $_name"
+	if "$@"; then
+		log "OK  $_name"
+		return 0
+	fi
+	log "FAIL $_name"
+	FAILS=$((FAILS + 1))
+	return 1
+}
+
+status_expect_pressed() {
+	_expected="$1"
+	_out="$(remotectl status 2>&1)" || {
+		printf '%s\n' "$_out"
+		return 1
+	}
+	printf '%s\n' "$_out"
+	echo "$_out" | grep -q "pressed=$_expected"
+}
+
+enter_input_best_effort() {
+	remotectl seq "tap MENU; wait 700; tap DOWN; wait 150; tap DOWN; wait 150; tap DOWN; wait 250; tap A"
+}
+
+run_basic_checks() {
+	run_step selftest remotectl selftest
+	run_step status-pressed0 status_expect_pressed 0
+	run_step capture-probe remotectl capture-probe --source fbdev
+	run_step screenshot-fbdev remotectl screenshot --source fbdev "$OUT_DIR/selfcheck-basic.png"
+	run_step capture-fbdev remotectl capture --source fbdev --seconds 1 "$OUT_DIR/selfcheck-basic-1s.mp4"
+}
+
+run_input_checks() {
+	_prefix="$OUT_DIR/selfcheck-input"
+
+	if [ "$ENTER_INPUT" -eq 1 ]; then
+		run_step enter-input enter_input_best_effort
+		sleep 1
+	fi
+
+	run_step input-baseline-shot remotectl screenshot --source fbdev "$_prefix-baseline.png"
+	run_step dpad-visual remotectl combo-visual UP+LEFT+RIGHT+DOWN 250 "$_prefix-dpad.png"
+	run_step dpad-release status_expect_pressed 0
+	run_step face-visual remotectl combo-visual A+B+X+Y 250 "$_prefix-face.png"
+	run_step face-release status_expect_pressed 0
+	run_step shoulders-visual remotectl combo-visual L1+L2+R1+R2 250 "$_prefix-shoulders.png"
+	run_step shoulders-release status_expect_pressed 0
+	run_step menu-vol-visual remotectl combo-visual MENU+PLUS+MINUS 250 "$_prefix-menu-vol.png"
+	run_step menu-vol-release status_expect_pressed 0
+	run_step select-a-visual remotectl combo-visual SELECT+A 250 "$_prefix-select-a.png"
+	run_step select-a-release status_expect_pressed 0
+
+	run_step stdio-smoke sh -c '
+		cat <<'"'"'CTL'"'"' | remotectl --stdio >"'"$_prefix"'-stdio.log"
+ping
+status
+down A+B
+status
+up A+B
+status
+quit
+CTL
+	'
+
+	run_step capture-probe-fbdev remotectl capture-probe --source fbdev
+	run_step capture-fbdev remotectl capture --source fbdev --seconds 1 "$_prefix-1s.mp4"
+
+	if [ "$TEST_EXIT" -eq 1 ]; then
+		run_step start-select-exit remotectl tap START+SELECT
+		sleep 1
+		run_step post-exit-release status_expect_pressed 0
+		run_step post-exit-shot remotectl screenshot --source fbdev "$_prefix-post-exit.png"
+	fi
+}
+
+main() {
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			basic)
+				MODE=basic
+				shift
+				;;
+			input)
+				MODE=input
+				shift
+				;;
+			--enter-input)
+				ENTER_INPUT=1
+				shift
+				;;
+			--no-exit)
+				TEST_EXIT=0
+				shift
+				;;
+			-h|--help|help)
+				usage
+				exit 0
+				;;
+			*)
+				usage >&2
+				exit 2
+				;;
+		esac
+	done
+
+	mkdir -p "$OUT_DIR" || {
+		log "FAIL mkdir $OUT_DIR"
+		exit 1
+	}
+
+	run_basic_checks
+	if [ "$MODE" = input ]; then
+		run_input_checks
+	fi
+
+	log "SUMMARY mode=$MODE fails=$FAILS out_dir=$OUT_DIR"
+	[ "$FAILS" -eq 0 ]
+}
+
+main "$@"

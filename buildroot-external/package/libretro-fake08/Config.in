@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_FAKE08
+	bool "libretro-fake08"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Upstream MinUI PICO-8 core package for RG35XX-family targets.

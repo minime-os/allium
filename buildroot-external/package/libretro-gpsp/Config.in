@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_GPSP
+	bool "libretro-gpsp"
+	default n
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Restored gpSP core package for Allium.

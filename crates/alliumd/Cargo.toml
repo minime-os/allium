@@ -9,6 +9,7 @@ license = "MIT"
 [features]
 simulator = ["common/simulator"]
 miyoo = ["common/miyoo"]
+rg35xxsp = ["common/rg35xxsp"]
 console = ["console-subscriber"]
 
 [dependencies]

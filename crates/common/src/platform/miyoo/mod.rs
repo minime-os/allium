@@ -1,6 +1,6 @@
 mod battery;
 mod evdev;
-mod framebuffer;
+pub mod framebuffer;
 mod screen;
 pub mod usb_audio;
 mod volume;

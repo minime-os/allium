@@ -11,6 +11,7 @@ path = "src/main.rs"
 [features]
 simulator = ["common/simulator"]
 miyoo = ["common/miyoo"]
+rg35xxsp = ["common/rg35xxsp"]
 
 [dependencies]
 anyhow.workspace = true

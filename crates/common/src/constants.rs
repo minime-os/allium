@@ -15,7 +15,7 @@ pub static ALLIUM_VERSION: LazyLock<String> = LazyLock::new(|| {
         .unwrap_or_else(|_| "unknown".to_string())
 });
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     PathBuf::from(&env::var("ALLIUM_SD_ROOT").unwrap_or_else(|_| "/mnt/SDCARD/".to_string()))
 });
@@ -25,7 +25,7 @@ pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
         .map(|path| PathBuf::from(path))
         .unwrap_or_else(|_| env::current_dir().unwrap().join("simulator"))
 });
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+#[cfg(not(any(feature = "miyoo", feature = "rg35xxsp", feature = "simulator")))]
 pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(&env::var("ALLIUM_SD_ROOT").unwrap()));
 

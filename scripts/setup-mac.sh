@@ -33,6 +33,7 @@ fi
 source "$HOME/.cargo/env"
 
 rustup target add armv7-unknown-linux-gnueabihf
+rustup target add aarch64-unknown-linux-gnu
 
 echo "---------------------------------------"
 echo "Installing Zig, patchelf and cargo-zigbuild..."
@@ -41,6 +42,13 @@ echo ""
 
 brew install zig patchelf
 cargo install cargo-zigbuild
+
+echo "---------------------------------------"
+echo "Installing OrbStack for Linux Buildroot builds..."
+echo "---------------------------------------"
+echo ""
+
+brew install --cask orbstack
 
 echo "---------------------------------------"
 echo "Initializing git submodules..."

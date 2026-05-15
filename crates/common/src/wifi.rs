@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::Write;
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 use tokio::process::Command;
 
 use anyhow::Result;
@@ -87,9 +87,9 @@ impl WiFiSettings {
     }
 
     fn load_wpa_supplicant_conf() -> Option<Self> {
-        #[cfg(feature = "miyoo")]
+        #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
         {
-            let data = fs::read_to_string("/appconfigs/wpa_supplicant.conf").ok()?;
+            let data = fs::read_to_string(wpa_supplicant_conf()).ok()?;
 
             let ssid_index = data.find("ssid=\"")?;
             let ssid = &data[ssid_index + 6..];
@@ -108,14 +108,14 @@ impl WiFiSettings {
             })
         }
 
-        #[cfg(not(feature = "miyoo"))]
+        #[cfg(not(any(feature = "miyoo", feature = "rg35xxsp")))]
         Some(Self::new())
     }
 
     fn update_wpa_supplicant_conf(&self) -> Result<()> {
-        #[cfg(feature = "miyoo")]
+        #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
         {
-            let mut file = File::create("/appconfigs/wpa_supplicant.conf")?;
+            let mut file = File::create(wpa_supplicant_conf())?;
             write!(
                 file,
                 r#"ctrl_interface=/var/run/wpa_supplicant
@@ -232,7 +232,7 @@ impl Default for WiFiSettings {
 }
 
 pub fn wifi_on() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("wifi-on.sh"))
             .spawn()
@@ -252,7 +252,7 @@ pub fn wifi_on() -> Result<()> {
 }
 
 pub fn wifi_off() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("wifi-off.sh"))
             .spawn()
@@ -272,7 +272,7 @@ pub fn wifi_off() -> Result<()> {
 }
 
 pub fn telnet_on() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("telnet-on.sh"))
             .spawn()
@@ -292,7 +292,7 @@ pub fn telnet_on() -> Result<()> {
 }
 
 pub fn telnet_off() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("telnet-off.sh"))
             .spawn()
@@ -312,7 +312,7 @@ pub fn telnet_off() -> Result<()> {
 }
 
 pub fn ftp_on() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("ftp-on.sh"))
             .spawn()
@@ -332,7 +332,7 @@ pub fn ftp_on() -> Result<()> {
 }
 
 pub fn ftp_off() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("ftp-off.sh"))
             .spawn()
@@ -352,7 +352,7 @@ pub fn ftp_off() -> Result<()> {
 }
 
 pub fn ntp_sync() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("ntp-sync.sh"))
             .spawn()
@@ -391,7 +391,7 @@ pub fn ntp_sync() -> Result<()> {
 }
 
 pub fn web_file_browser_on() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("dufs-on.sh"))
             .spawn()
@@ -411,7 +411,7 @@ pub fn web_file_browser_on() -> Result<()> {
 }
 
 pub fn web_file_browser_off() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("dufs-off.sh"))
             .spawn()
@@ -431,7 +431,7 @@ pub fn web_file_browser_off() -> Result<()> {
 }
 
 pub fn syncthing_on() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("syncthing-on.sh"))
             .spawn()
@@ -451,7 +451,7 @@ pub fn syncthing_on() -> Result<()> {
 }
 
 pub fn syncthing_off() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     tokio::spawn(async {
         Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("syncthing-off.sh"))
             .spawn()
@@ -471,7 +471,7 @@ pub fn syncthing_off() -> Result<()> {
 }
 
 pub async fn wait_for_wifi() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     Command::new(crate::constants::ALLIUM_SCRIPTS_DIR.join("wait-for-wifi.sh"))
         .spawn()
         .map_err(|e| {
@@ -487,7 +487,7 @@ pub async fn wait_for_wifi() -> Result<()> {
 }
 
 pub fn ip_address() -> Option<String> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     {
         let output = std::process::Command::new("ip")
             .args(["route", "get", "255.255.255.255"])
@@ -508,6 +508,16 @@ pub fn ip_address() -> Option<String> {
         return Some("127.0.0.1".to_string());
     }
 
-    #[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+    #[cfg(not(any(feature = "miyoo", feature = "rg35xxsp", feature = "simulator")))]
     return None;
+}
+
+#[cfg(feature = "miyoo")]
+fn wpa_supplicant_conf() -> &'static str {
+    "/appconfigs/wpa_supplicant.conf"
+}
+
+#[cfg(feature = "rg35xxsp")]
+fn wpa_supplicant_conf() -> std::path::PathBuf {
+    crate::constants::ALLIUM_BASE_DIR.join("config/wpa_supplicant.conf")
 }

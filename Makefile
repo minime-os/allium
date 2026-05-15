@@ -1,6 +1,22 @@
 ROOT_DIR := $(shell pwd)
+HOST_OS := $(shell uname -s)
 BUILD_DIR := target/armv7-unknown-linux-gnueabihf/release
 DIST_DIR := dist
+SP_BUILDROOT_VERSION := 2026.02.1
+SP_DIST_DIR := $(DIST_DIR)/sp
+SP_BUILDROOT_DIR := $(SP_DIST_DIR)/buildroot
+SP_BUILDROOT_TARBALL := $(SP_DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION).tar.xz
+SP_BUILDROOT_URL := https://buildroot.org/downloads/buildroot-$(SP_BUILDROOT_VERSION).tar.xz
+SP_EXTERNAL_DIR := $(ROOT_DIR)/buildroot-external
+SP_BUILDROOT_HOST_STAMP := $(SP_BUILDROOT_DIR)/output/.allium-host-os
+SP_DEFCONFIG := $(SP_EXTERNAL_DIR)/configs/allium_rg35xxsp_defconfig
+SP_KERNEL_CONFIG := $(SP_EXTERNAL_DIR)/board/rg35xxsp/linux.config
+SP_GENERATED_KERNEL_CONFIG := $(abspath $(SP_DIST_DIR))/linux.config
+SP_PAYLOAD_DIR := $(abspath $(SP_DIST_DIR))/payload
+SP_PAYLOAD_SCRIPT := $(ROOT_DIR)/scripts/build-sp-payload.sh
+ORBSTACK_MACHINE ?= allium-buildroot-amd64
+ORBSTACK_ARCH ?= amd64
+SP_ORBSTACK_DIST_DIR ?= /home/$(USER)/allium-sp
 RETROARCH := third-party/RetroArch-patch
 TOOLCHAIN := mholdg16/miyoomini-toolchain:latest
 
@@ -39,6 +55,123 @@ simulator: simulator-env
 dist:
 	mkdir -p $(DIST_DIR)
 	rsync -a --exclude='.gitkeep' static/. $(DIST_DIR)
+
+.PHONY: sp
+sp: sp-check
+ifeq ($(HOST_OS),Linux)
+	$(MAKE) sp-linux
+else ifeq ($(HOST_OS),Darwin)
+	$(MAKE) sp-orbstack
+else
+	$(error unsupported host OS for make sp: $(HOST_OS))
+endif
+
+.PHONY: sp-orbstack
+sp-orbstack:
+	@command -v orb >/dev/null 2>&1 || { \
+		echo "OrbStack CLI 'orb' is required on macOS. Run ./scripts/setup-mac.sh, then open OrbStack once."; \
+		exit 1; \
+	}
+	@orb -m "$(ORBSTACK_MACHINE)" uname -s >/dev/null 2>&1 || orb create --arch "$(ORBSTACK_ARCH)" ubuntu "$(ORBSTACK_MACHINE)"
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'for tool in gcc g++ make cmake ccache mold ninja curl; do command -v "$$tool" >/dev/null 2>&1 || missing=1; done; test -f /usr/include/openssl/bio.h || missing=1; if [ "$$missing" = 1 ]; then sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y bash bc bison build-essential bzip2 ca-certificates ccache cmake cpio curl file findutils flex g++ gcc git gzip libncurses-dev libssl-dev locales lzip make mold ninja-build patch perl python3 rsync sed tar unzip wget xz-utils zstd; fi'
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'if ! command -v cargo >/dev/null 2>&1; then curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; fi'
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc '. "$$HOME/.cargo/env" 2>/dev/null || true; cd "$(ROOT_DIR)" && make sp-linux SP_DIST_DIR="$(SP_ORBSTACK_DIST_DIR)" SP_BUILDROOT_DIR="$(SP_ORBSTACK_DIST_DIR)/buildroot" SP_BUILDROOT_TARBALL="$(SP_ORBSTACK_DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION).tar.xz" SP_BUILDROOT_HOST_STAMP="$(SP_ORBSTACK_DIST_DIR)/buildroot/output/.allium-host-os"'
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'mkdir -p "$(ROOT_DIR)/$(SP_DIST_DIR)/images" && cp -a "$(SP_ORBSTACK_DIST_DIR)/images/allium-rg35xxsp.img.gz" "$(ROOT_DIR)/$(SP_DIST_DIR)/images/"'
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'rm -rf "$(ROOT_DIR)/$(SP_DIST_DIR)/payload" && cp -a "$(SP_ORBSTACK_DIST_DIR)/payload" "$(ROOT_DIR)/$(SP_DIST_DIR)/payload"'
+
+.PHONY: sp-check
+sp-check:
+	@test -f "$(SP_DEFCONFIG)"
+	@test -f "$(SP_KERNEL_CONFIG)"
+	@grep -qx 'BR2_DL_DIR="$$(TOPDIR)/../dl"' "$(SP_DEFCONFIG)"
+	@grep -qx 'BR2_TOOLCHAIN_EXTERNAL=y' "$(SP_DEFCONFIG)"
+	@grep -qx 'BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y' "$(SP_DEFCONFIG)"
+	@grep -qx 'BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_AARCH64_GLIBC_STABLE=y' "$(SP_DEFCONFIG)"
+	@grep -qx 'BR2_TARGET_LDFLAGS="-fuse-ld=mold"' "$(SP_DEFCONFIG)"
+	@grep -qx 'BR2_CCACHE=y' "$(SP_DEFCONFIG)"
+	@grep -qx 'BR2_OPTIMIZE_3=y' "$(SP_DEFCONFIG)"
+	@grep -qx 'BR2_ENABLE_LTO=y' "$(SP_DEFCONFIG)"
+	@! grep -q 'BR2_PER_PACKAGE_DIRECTORIES=y' "$(SP_DEFCONFIG)" || { echo "SP external payloads require a shared Buildroot host/sysroot"; exit 1; }
+	@! grep -q 'BR2_PACKAGE_HOST_RUSTC=y' "$(SP_DEFCONFIG)" || { echo "SP Buildroot must not build Rust"; exit 1; }
+	@! grep -q 'BR2_PACKAGE_LIBRETRO_.*=y' "$(SP_DEFCONFIG)" || { echo "SP Buildroot must not build libretro cores"; exit 1; }
+	@test -x "$(SP_PAYLOAD_SCRIPT)"
+	@grep -qx '# CONFIG_MODULES is not set' "$(SP_KERNEL_CONFIG)"
+	@! grep -q '=m$$' "$(SP_KERNEL_CONFIG)" || { echo "kernel config contains modules"; grep '=m$$' "$(SP_KERNEL_CONFIG)"; exit 1; }
+	@for option in \
+		CONFIG_ARCH_SUNXI \
+		CONFIG_MMC_SUNXI \
+		CONFIG_DRM_FBDEV_EMULATION \
+		CONFIG_DRM_SUN4I \
+		CONFIG_DRM_SUN6I_DSI \
+		CONFIG_DRM_PANEL_MIPI \
+		CONFIG_BACKLIGHT_PWM \
+		CONFIG_INPUT_EVDEV \
+		CONFIG_KEYBOARD_GPIO \
+		CONFIG_BATTERY_AXP20X \
+		CONFIG_SND_SOC_SUNXI_SUN50IW9_CODEC \
+		CONFIG_RTW88_8821CS \
+		CONFIG_BT_HCIUART_RTL \
+		CONFIG_EROFS_FS \
+		CONFIG_VFAT_FS \
+		CONFIG_DEVTMPFS_MOUNT; do \
+		grep -qx "$$option=y" "$(SP_KERNEL_CONFIG)" || { echo "missing $$option=y"; exit 1; }; \
+	done
+
+.PHONY: sp-linux
+sp-linux: sp-check sp-buildroot-host
+	$(MAKE) -C $(SP_BUILDROOT_DIR) BR2_EXTERNAL=$(SP_EXTERNAL_DIR) allium_rg35xxsp_defconfig
+	mkdir -p "$(SP_DIST_DIR)"
+	sed 's#__ALLIUM_BOARD_FIRMWARE_DIR__#$(SP_EXTERNAL_DIR)/board/rg35xxsp/firmware#g' "$(SP_KERNEL_CONFIG)" > "$(SP_GENERATED_KERNEL_CONFIG)"
+	sed -i 's#^BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE=.*#BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(SP_GENERATED_KERNEL_CONFIG)"#' "$(SP_BUILDROOT_DIR)/.config"
+	if grep -q '^BR2_PACKAGE_ALLIUM_PAYLOAD_DIR=' "$(SP_BUILDROOT_DIR)/.config"; then \
+		sed -i 's#^BR2_PACKAGE_ALLIUM_PAYLOAD_DIR=.*#BR2_PACKAGE_ALLIUM_PAYLOAD_DIR="$(SP_PAYLOAD_DIR)"#' "$(SP_BUILDROOT_DIR)/.config"; \
+	else \
+		printf '%s\n' 'BR2_PACKAGE_ALLIUM_PAYLOAD_DIR="$(SP_PAYLOAD_DIR)"' >> "$(SP_BUILDROOT_DIR)/.config"; \
+	fi
+	$(MAKE) -C $(SP_BUILDROOT_DIR) BR2_EXTERNAL=$(SP_EXTERNAL_DIR) olddefconfig
+	$(MAKE) sp-buildroot-deps
+	$(MAKE) sp-payload
+	$(MAKE) -C $(SP_BUILDROOT_DIR) BR2_EXTERNAL=$(SP_EXTERNAL_DIR)
+	mkdir -p $(SP_DIST_DIR)/images
+	cp -a $(SP_BUILDROOT_DIR)/output/images/allium-rg35xxsp.img.gz $(SP_DIST_DIR)/images/
+
+.PHONY: sp-buildroot-deps
+sp-buildroot-deps:
+	$(MAKE) -C $(SP_BUILDROOT_DIR) BR2_EXTERNAL=$(SP_EXTERNAL_DIR) toolchain host-pkgconf alsa-lib zlib sdl2 libpng freetype eudev
+
+.PHONY: sp-payload
+sp-payload:
+	ROOT_DIR="$(ROOT_DIR)" \
+	SP_DIST_DIR="$(SP_DIST_DIR)" \
+	SP_BUILDROOT_DIR="$(SP_BUILDROOT_DIR)" \
+	SP_EXTERNAL_DIR="$(SP_EXTERNAL_DIR)" \
+	SP_PAYLOAD_DIR="$(SP_PAYLOAD_DIR)" \
+	RETROARCH_DIR="$(ROOT_DIR)/$(RETROARCH)" \
+	"$(SP_PAYLOAD_SCRIPT)"
+
+.PHONY: sp-buildroot-host
+sp-buildroot-host: $(SP_BUILDROOT_DIR)/.stamp-extracted
+	@if [ -d "$(SP_BUILDROOT_DIR)/output" ] && { [ ! -f "$(SP_BUILDROOT_HOST_STAMP)" ] || [ "$$(cat "$(SP_BUILDROOT_HOST_STAMP)")" != "$$(uname -s)-$$(uname -m)" ]; }; then \
+		echo "Resetting Buildroot output for $$(uname -s)-$$(uname -m) host"; \
+		rm -rf "$(SP_BUILDROOT_DIR)/output"; \
+	fi
+	@if [ -d "$(SP_BUILDROOT_DIR)/output/per-package" ] && [ ! -d "$(SP_BUILDROOT_DIR)/output/host" ]; then \
+		echo "Resetting Buildroot output to create shared host/sysroot for external SP payloads"; \
+		rm -rf "$(SP_BUILDROOT_DIR)/output"; \
+	fi
+	@mkdir -p "$(SP_BUILDROOT_DIR)/output"
+	@printf '%s-%s\n' "$$(uname -s)" "$$(uname -m)" > "$(SP_BUILDROOT_HOST_STAMP)"
+
+$(SP_BUILDROOT_TARBALL):
+	mkdir -p $(SP_DIST_DIR)
+	wget -O $@ $(SP_BUILDROOT_URL)
+
+$(SP_BUILDROOT_DIR)/.stamp-extracted: $(SP_BUILDROOT_TARBALL)
+	rm -rf $(SP_BUILDROOT_DIR)
+	mkdir -p $(SP_DIST_DIR)
+	tar -C $(SP_DIST_DIR) -xf $(SP_BUILDROOT_TARBALL)
+	mv $(SP_DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION) $(SP_BUILDROOT_DIR)
+	touch $@
 
 third-party/my283:
 	wget -O third-party/my283.tar.xz https://github.com/shauninman/miyoomini-toolchain-buildroot/raw/main/support/my283.tar.xz

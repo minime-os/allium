@@ -1,0 +1,527 @@
+#!/bin/sh
+
+PIDFILE=/var/run/remote-screenrec.pid
+ARTIFACT_DIR=/mnt/sdcard/system/logs/remotectl
+METAFILE="$ARTIFACT_DIR/remote-screenrec.meta"
+LOGFILE="$ARTIFACT_DIR/remote-screenrec.log"
+DEFAULT_FB=/dev/fb0
+DEFAULT_SOURCE=auto
+DEFAULT_FPS=4
+FULL_FPS=60
+DEFAULT_CRF=38
+DEFAULT_PRESET=veryfast
+DEFAULT_SCALE='320:-2:flags=neighbor'
+STOP_WAIT_SECS=5
+
+set_defaults() {
+	SOURCE="$DEFAULT_SOURCE"
+	FB_PATH="$DEFAULT_FB"
+	FPS="$DEFAULT_FPS"
+	CRF="$DEFAULT_CRF"
+	PRESET="$DEFAULT_PRESET"
+	SCALE_EXPR="$DEFAULT_SCALE"
+	TUNE=stillimage
+	OUT_PATH=
+	DURATION_SECS=
+}
+
+usage() {
+	cat <<'EOF'
+Usage:
+  remote-screenrecctl probe
+  remote-screenrecctl status
+  remote-screenrecctl screenshot [options] [out.png|out.ppm]
+  remote-screenrecctl start [options] <out.mp4>
+  remote-screenrecctl stop
+  remote-screenrecctl wait
+  remote-screenrecctl capture [options] --seconds N <out.mp4>
+
+Options:
+  --source auto|fbdev (default auto; auto maps to fbdev)
+  --fb PATH
+  --fps N              (default 4)
+  --full-fps           (set fps to 60 for timing-sensitive capture)
+  --crf N              (default 38; larger = smaller file)
+  --preset NAME        (default veryfast)
+  --scale EXPR         (ffmpeg scale expr; default 320:-2:flags=neighbor)
+  --no-scale
+  --seconds N          (capture only)
+EOF
+}
+
+is_num() {
+	case "$1" in
+		''|*[!0-9]*)
+			return 1
+			;;
+		*)
+			return 0
+			;;
+	esac
+}
+
+ensure_artifact_dir() {
+	mkdir -p "$ARTIFACT_DIR" || return 1
+}
+
+default_out_path() {
+	_ext="${1:-mp4}"
+	ensure_artifact_dir || return 1
+	printf '%s/screencast-%s.%s\n' "$ARTIFACT_DIR" "$(date +%Y%m%d-%H%M%S)" "$_ext"
+}
+
+file_ext_lower() {
+	_p="$1"
+	_base="$(basename "$_p")"
+	_ext="${_base##*.}"
+	if [ "$_ext" = "$_base" ]; then
+		printf '\n'
+		return 0
+	fi
+	printf '%s\n' "$_ext" | tr '[:upper:]' '[:lower:]'
+}
+
+default_screenshot_out_path() {
+	_src="$1"
+	_ext=png
+	if [ "$_src" = "fbdev" ]; then
+		_ext=ppm
+	fi
+	default_out_path "$_ext"
+}
+
+pid_is_running() {
+	_pid="$1"
+	[ -n "$_pid" ] || return 1
+	is_num "$_pid" || return 1
+	kill -0 "$_pid" 2>/dev/null
+}
+
+read_pid() {
+	[ -f "$PIDFILE" ] || return 1
+	_pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+	pid_is_running "$_pid" || return 1
+	printf '%s\n' "$_pid"
+}
+
+cleanup_stale_pid() {
+	if [ -f "$PIDFILE" ]; then
+		_pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+		if ! pid_is_running "$_pid"; then
+			rm -f "$PIDFILE"
+		fi
+	fi
+}
+
+load_meta() {
+	OUT_PATH=
+	REC_SOURCE=
+	REC_FPS=
+	REC_CRF=
+	REC_PRESET=
+	REC_SCALE=
+	REC_FB=
+	REC_STARTED_AT=
+	[ -r "$METAFILE" ] && . "$METAFILE"
+}
+
+save_meta() {
+	cat >"$METAFILE" <<EOF
+OUT_PATH='$OUT_PATH'
+REC_SOURCE='$ACTIVE_SOURCE'
+REC_FPS='$FPS'
+REC_CRF='$CRF'
+REC_PRESET='$PRESET'
+REC_SCALE='$SCALE_EXPR'
+REC_FB='$FB_PATH'
+REC_STARTED_AT='$(date +%s)'
+EOF
+}
+
+parse_common_args() {
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--source)
+				[ $# -ge 2 ] || return 1
+				case "$2" in
+					auto|fbdev)
+						SOURCE="$2"
+						;;
+					*)
+						return 1
+						;;
+				esac
+				shift 2
+				;;
+				--fb)
+				[ $# -ge 2 ] || return 1
+				FB_PATH="$2"
+				shift 2
+				;;
+			--fps)
+				[ $# -ge 2 ] || return 1
+				is_num "$2" || return 1
+				[ "$2" -ge 1 ] && [ "$2" -le 120 ] || return 1
+				FPS="$2"
+				shift 2
+				;;
+			--full-fps)
+				FPS="$FULL_FPS"
+				shift
+				;;
+			--crf)
+				[ $# -ge 2 ] || return 1
+				is_num "$2" || return 1
+				[ "$2" -ge 0 ] && [ "$2" -le 51 ] || return 1
+				CRF="$2"
+				shift 2
+				;;
+			--preset)
+				[ $# -ge 2 ] || return 1
+				PRESET="$2"
+				shift 2
+				;;
+			--scale)
+				[ $# -ge 2 ] || return 1
+				SCALE_EXPR="$2"
+				shift 2
+				;;
+			--no-scale)
+				SCALE_EXPR=
+				shift
+				;;
+			--seconds)
+				[ $# -ge 2 ] || return 1
+				is_num "$2" || return 1
+				[ "$2" -ge 1 ] && [ "$2" -le 3600 ] || return 1
+				DURATION_SECS="$2"
+				shift 2
+				;;
+			--)
+				shift
+				break
+				;;
+			*)
+				break
+				;;
+		esac
+	done
+	PARSE_REST="$*"
+	return 0
+}
+
+ffmpeg_has_encoder() {
+	ffmpeg -hide_banner -loglevel error -encoders 2>/dev/null | grep -q "$1"
+}
+
+ffmpeg_has_input() {
+	ffmpeg -hide_banner -loglevel error -devices 2>/dev/null | grep -q "$1"
+}
+
+resolve_source() {
+	ACTIVE_SOURCE=
+
+	case "$SOURCE" in
+		fbdev)
+			ACTIVE_SOURCE=fbdev
+			return 0
+			;;
+		auto)
+			ACTIVE_SOURCE=fbdev
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+require_ffmpeg() {
+	command -v ffmpeg >/dev/null 2>&1 || {
+		echo "ERR missing-ffmpeg"
+		return 1
+	}
+	ensure_artifact_dir || {
+		echo "ERR artifact-dir $ARTIFACT_DIR"
+		return 1
+	}
+
+	resolve_source || {
+		echo "ERR source-unavailable $SOURCE"
+		return 1
+	}
+
+	[ -e "$FB_PATH" ] || {
+		echo "ERR missing-fb $FB_PATH"
+		return 1
+	}
+	return 0
+}
+
+ffmpeg_run() {
+	_out="$1"
+	_seconds="$2"
+
+	set -- ffmpeg -hide_banner -loglevel error -nostdin -y \
+		-f fbdev -framerate "$FPS" -i "$FB_PATH" \
+		-an
+	if [ -n "$SCALE_EXPR" ]; then
+		set -- "$@" -vf "scale=$SCALE_EXPR"
+	fi
+	set -- "$@" \
+		-c:v libx264 -preset "$PRESET" -tune "$TUNE" -crf "$CRF" \
+		-pix_fmt yuv420p -movflags +faststart
+
+	if [ -n "$_seconds" ]; then
+		set -- "$@" -t "$_seconds"
+	fi
+
+	set -- "$@" "$_out"
+
+	"$@" >>"$LOGFILE" 2>&1
+}
+
+run_fbdev_screenshot() {
+	_out="$1"
+	_ext="$(file_ext_lower "$_out")"
+	case "$_ext" in
+		ppm)
+			remote-fbgrab --fb "$FB_PATH" "$_out" >>"$LOGFILE" 2>&1
+			;;
+		png)
+			_tmp="$_out.ppm.tmp.$$"
+			remote-fbgrab --fb "$FB_PATH" "$_tmp" >>"$LOGFILE" 2>&1 &&
+				remote-ppm2png "$_tmp" "$_out" >>"$LOGFILE" 2>&1
+			_rc=$?
+			rm -f "$_tmp"
+			return $_rc
+			;;
+		*)
+			echo "ERR screenshot-fbdev-extension (use .ppm or .png)" >>"$LOGFILE"
+			return 1
+			;;
+	esac
+}
+
+screenshot_once() {
+	set_defaults
+	parse_common_args "$@" || {
+		echo "ERR invalid-args"
+		return 1
+	}
+	set -- $PARSE_REST
+	require_ffmpeg || return 1
+
+	if [ $# -eq 0 ]; then
+		OUT_PATH="$(default_screenshot_out_path "$ACTIVE_SOURCE")" || {
+			echo "ERR default-out-path"
+			return 1
+		}
+	elif [ $# -eq 1 ]; then
+		OUT_PATH="$1"
+	else
+		echo "ERR expected-out-path"
+		return 1
+	fi
+
+	: >"$LOGFILE" || {
+		echo "ERR log-open"
+		return 1
+	}
+
+	if run_fbdev_screenshot "$OUT_PATH"; then
+		echo "OK source=fbdev out=$OUT_PATH"
+		return 0
+	fi
+	echo "ERR screenshot"
+	return 1
+}
+
+probe() {
+	set_defaults
+	parse_common_args "$@" || {
+		echo "ERR invalid-args"
+		return 1
+	}
+	if ! require_ffmpeg; then
+		return 1
+	fi
+	if ffmpeg_has_encoder 'libx264'; then
+		echo "OK encoder libx264"
+	else
+		echo "ERR encoder libx264"
+		return 1
+	fi
+	if ffmpeg_has_input 'fbdev'; then
+		echo "OK indev fbdev"
+	else
+		echo "WARN indev fbdev"
+	fi
+	echo "OK source ${ACTIVE_SOURCE}"
+	echo "OK fb $FB_PATH"
+	return 0
+}
+
+status() {
+	cleanup_stale_pid
+	load_meta
+	if _pid="$(read_pid)"; then
+		echo "OK running pid=$_pid out=${OUT_PATH:-unknown}"
+		return 0
+	fi
+	echo "OK stopped out=${OUT_PATH:-}"
+	return 0
+}
+
+start_capture() {
+	cleanup_stale_pid
+	if _pid="$(read_pid)"; then
+		echo "ERR already-running pid=$_pid"
+		return 1
+	fi
+	set_defaults
+	parse_common_args "$@" || {
+		echo "ERR invalid-args"
+		return 1
+	}
+	set -- $PARSE_REST
+	if [ $# -eq 0 ]; then
+		OUT_PATH="$(default_out_path mp4)" || {
+			echo "ERR default-out-path"
+			return 1
+		}
+	elif [ $# -eq 1 ]; then
+		OUT_PATH="$1"
+	else
+		echo "ERR expected-out-path"
+		return 1
+	fi
+	require_ffmpeg || return 1
+
+	: >"$LOGFILE" || {
+		echo "ERR log-open"
+		return 1
+	}
+
+	(
+		ffmpeg_run "$OUT_PATH" ""
+		) &
+	_pid=$!
+	echo "$_pid" >"$PIDFILE"
+	save_meta
+	sleep 1
+	if ! pid_is_running "$_pid"; then
+		rm -f "$PIDFILE"
+		echo "ERR start-failed"
+		return 1
+	fi
+	echo "OK started pid=$_pid out=$OUT_PATH"
+	return 0
+}
+
+wait_capture() {
+	cleanup_stale_pid
+	load_meta
+	_pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+	if ! pid_is_running "$_pid"; then
+		rm -f "$PIDFILE"
+		echo "OK stopped out=${OUT_PATH:-}"
+		return 0
+	fi
+	while pid_is_running "$_pid"; do
+		sleep 1
+	done
+	rm -f "$PIDFILE"
+	echo "OK done out=${OUT_PATH:-}"
+	return 0
+}
+
+stop_capture() {
+	cleanup_stale_pid
+	load_meta
+	_pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+	if ! pid_is_running "$_pid"; then
+		rm -f "$PIDFILE"
+		echo "OK already-stopped out=${OUT_PATH:-}"
+		return 0
+	fi
+	kill "$_pid" 2>/dev/null || true
+	_deadline=$(( $(date +%s) + STOP_WAIT_SECS ))
+	while pid_is_running "$_pid"; do
+		_now=$(date +%s)
+		if [ "$_now" -ge "$_deadline" ]; then
+			kill -9 "$_pid" 2>/dev/null || true
+			break
+		fi
+		sleep 1
+	done
+	rm -f "$PIDFILE"
+	echo "OK stopped out=${OUT_PATH:-}"
+	return 0
+}
+
+capture_once() {
+	set_defaults
+	parse_common_args "$@" || {
+		echo "ERR invalid-args"
+		return 1
+	}
+	set -- $PARSE_REST
+	[ -n "$DURATION_SECS" ] || {
+		echo "ERR missing-seconds"
+		return 1
+	}
+	if [ $# -eq 0 ]; then
+		OUT_PATH="$(default_out_path mp4)" || {
+			echo "ERR default-out-path"
+			return 1
+		}
+	elif [ $# -eq 1 ]; then
+		OUT_PATH="$1"
+	else
+		echo "ERR expected-out-path"
+		return 1
+	fi
+	require_ffmpeg || return 1
+	if ffmpeg_run "$OUT_PATH" "$DURATION_SECS"; then
+		echo "OK out=$OUT_PATH"
+		return 0
+	fi
+	echo "ERR ffmpeg"
+	return 1
+}
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+	probe)
+		probe "$@"
+		;;
+	status)
+		status
+		;;
+	screenshot)
+		screenshot_once "$@"
+		;;
+	start)
+		start_capture "$@"
+		;;
+	stop)
+		stop_capture "$@"
+		;;
+	wait)
+		wait_capture "$@"
+		;;
+	capture)
+		capture_once "$@"
+		;;
+	""|-h|--help|help)
+		usage
+		;;
+	*)
+		echo "ERR unknown-command"
+		usage >&2
+		exit 1
+		;;
+esac

@@ -165,7 +165,7 @@ impl AlliumMenu<DefaultPlatform> {
                         .update_screenshot_path(game_path, Some(&screenshot_path))
                         .ok();
 
-                    #[cfg(feature = "miyoo")]
+                    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
                     tokio::process::Command::new("screenshot")
                         .arg(screenshot_path)
                         .arg(format!(

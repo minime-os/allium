@@ -1,0 +1,66 @@
+#!/bin/sh
+
+SPLASH_FB="/usr/share/bootsplash/splash.fb"
+FB_DEV="/dev/fb0"
+LOG="/tmp/boot-launch-early.txt"
+FLAG="/tmp/allium-boot-splash-shown"
+SDCARD_MNT="/mnt/SDCARD"
+BRIGHTNESS_STATE="${SDCARD_MNT}/.allium/state/settings.state"
+BRIGHTNESS_DEFAULT="${BOOT_SPLASH_BRIGHTNESS_DEFAULT:-10}"
+WAIT_TRIES="${BOOT_SPLASH_WAIT_TRIES:-20}"
+WAIT_SLEEP="${BOOT_SPLASH_WAIT_SLEEP:-0.1}"
+
+boot_uptime_ms() {
+	awk '{ printf "%d", ($1 * 1000) }' /proc/uptime 2>/dev/null || echo 0
+}
+
+log() {
+	echo "$(date +"%F %T") $*" >> "$LOG"
+}
+
+show_splash() {
+	[ -f "$SPLASH_FB" ] || return 0
+	[ -e "$FLAG" ] && return 0
+
+	i=0
+	while [ "$i" -lt "$WAIT_TRIES" ]; do
+		if [ -w "$FB_DEV" ]; then
+			break
+		fi
+		i=$((i + 1))
+		sleep "$WAIT_SLEEP"
+	done
+
+	[ -w "$FB_DEV" ] || return 0
+
+	log "early_splash start uptime_ms=$(boot_uptime_ms)"
+	if [ -x /usr/bin/bootsplash ]; then
+		mkdir -p "$SDCARD_MNT"
+		mountpoint -q "$SDCARD_MNT" >/dev/null 2>&1 || mount "$SDCARD_MNT" >/dev/null 2>&1 || true
+		/usr/bin/bootsplash \
+			--fb "$FB_DEV" \
+			--image "$SPLASH_FB" \
+			--unblank \
+			--brightness-state "$BRIGHTNESS_STATE" \
+			--brightness-default "$BRIGHTNESS_DEFAULT" >/dev/null 2>&1 || true
+	else
+		[ -w /sys/class/graphics/fb0/blank ] && echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null || true
+		dd if="$SPLASH_FB" of="$FB_DEV" bs=4096 2>/dev/null || true
+	fi
+	: > "$FLAG"
+	log "early_splash done uptime_ms=$(boot_uptime_ms)"
+}
+
+case "$1" in
+	start)
+		show_splash
+		;;
+	stop|restart|reload)
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload}" >&2
+		exit 1
+		;;
+esac
+
+exit 0

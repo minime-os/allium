@@ -1,0 +1,83 @@
+[[consoles]]
+name = "NES"
+cores = ["fceumm"]
+patterns = ["FC", "NES"]
+extensions = ["nes", "unif", "unf"]
+
+[[consoles]]
+name = "Game Boy"
+cores = ["gambatte", "mgba"]
+patterns = ["GB"]
+extensions = ["gb"]
+
+[[consoles]]
+name = "Game Boy Color"
+cores = ["gambatte", "mgba"]
+patterns = ["GBC"]
+extensions = ["gbc"]
+
+[[consoles]]
+name = "Game Boy Advance"
+cores = ["gpsp", "mgba"]
+patterns = ["GBA"]
+extensions = ["gba"]
+
+[[consoles]]
+name = "SNES"
+cores = ["mednafen_supafaust", "snes9x2005_plus"]
+patterns = ["SFC", "SNES"]
+extensions = ["sfc", "smc", "swc", "fig"]
+
+[[consoles]]
+name = "TurboGrafx-16"
+cores = ["mednafen_pce_fast"]
+patterns = ["PCE"]
+extensions = ["pce"]
+
+[[consoles]]
+name = "Virtual Boy"
+cores = ["mednafen_vb"]
+patterns = ["VB"]
+extensions = ["vb", "vboy"]
+
+[[consoles]]
+name = "PICO-8"
+cores = ["fake08"]
+patterns = ["PICO"]
+extensions = ["p8", "png"]
+
+[[consoles]]
+name = "Genesis"
+cores = ["picodrive"]
+patterns = ["MD"]
+extensions = ["gen", "smd", "md"]
+
+[[consoles]]
+name = "Game Gear"
+cores = ["picodrive"]
+patterns = ["GG"]
+extensions = ["gg"]
+
+[[consoles]]
+name = "Master System"
+cores = ["picodrive"]
+patterns = ["MS"]
+extensions = ["sms"]
+
+[[consoles]]
+name = "PlayStation"
+cores = ["pcsx_rearmed"]
+patterns = ["PSX", "PS", "PS1"]
+extensions = ["mdf", "pbp", "toc", "cbn"]
+
+[[consoles]]
+name = "Pokémon Mini"
+cores = ["pokemini"]
+patterns = ["POKE", "PKM"]
+extensions = ["min"]
+
+[[consoles]]
+name = "Neo Geo Pocket Color"
+cores = ["race"]
+patterns = ["NGP", "NGC"]
+extensions = ["ngp", "ngc"]

@@ -1,0 +1,6 @@
+config BR2_PACKAGE_BOOTSPLASH
+	bool "bootsplash"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Tiny fbdev splash/overlay utility for early boot and first-boot setup UX.

@@ -144,7 +144,7 @@ impl AlliumDState {
 }
 
 async fn spawn_main() -> Result<Child> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     return Ok(match GameInfo::load()? {
         Some(mut game_info) => {
             debug!("found game info, resuming game");
@@ -160,7 +160,7 @@ async fn spawn_main() -> Result<Child> {
     }
     .spawn()?);
 
-    #[cfg(not(feature = "miyoo"))]
+    #[cfg(not(any(feature = "miyoo", feature = "rg35xxsp")))]
     return Ok(Command::new("/bin/sh")
         .arg("-c")
         .arg("make simulator-launcher")

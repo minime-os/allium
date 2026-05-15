@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_RACE
+	bool "libretro-race"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Extra Neo Geo Pocket core package for Allium.

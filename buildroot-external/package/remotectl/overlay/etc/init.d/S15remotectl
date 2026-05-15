@@ -1,0 +1,158 @@
+#!/bin/sh
+
+DAEMON=/usr/bin/remote-inputd
+PIDFILE=/var/run/remote-inputd.pid
+CONF=/etc/default/remotectl
+LOG=/tmp/remote-inputd.log
+ENABLED=1
+SOCKET_PATH=/tmp/remotectl.sock
+STOP_WAIT_SECS=2
+
+load_conf() {
+	[ -r "$CONF" ] && . "$CONF"
+}
+
+pid_is_running() {
+	_pid="$1"
+	[ -n "$_pid" ] || return 1
+	case "$_pid" in
+		*[!0-9]*)
+			return 1
+			;;
+	esac
+	kill -0 "$_pid" 2>/dev/null
+}
+
+is_running() {
+	[ -f "$PIDFILE" ] || return 1
+	PID="$(cat "$PIDFILE" 2>/dev/null || true)"
+	pid_is_running "$PID"
+}
+
+list_daemon_pids() {
+	pidof "$(basename "$DAEMON")" 2>/dev/null || true
+}
+
+kill_daemon_pids() {
+	_sig="${1:-TERM}"
+	_any=1
+	for _pid in $(list_daemon_pids); do
+		kill "-$_sig" "$_pid" 2>/dev/null || true
+		_any=0
+	done
+	return $_any
+}
+
+wait_for_exit() {
+	_deadline=$(( $(date +%s) + ${STOP_WAIT_SECS:-2} ))
+	while :; do
+		_any=1
+		for _pid in $(list_daemon_pids); do
+			if pid_is_running "$_pid"; then
+				_any=0
+				break
+			fi
+		done
+		[ "$_any" = "1" ] && return 0
+		_now=$(date +%s)
+		[ "$_now" -ge "$_deadline" ] && return 1
+		sleep 1
+	done
+}
+
+cleanup_stale_runtime() {
+	if ! is_running; then
+		if kill_daemon_pids TERM; then
+			if ! wait_for_exit; then
+				kill_daemon_pids KILL || true
+			fi
+		fi
+		rm -f "$PIDFILE"
+		if [ -S "$SOCKET_PATH" ]; then
+			rm -f "$SOCKET_PATH"
+		fi
+	fi
+}
+
+start_daemon() {
+	if [ ! -x "$DAEMON" ]; then
+		echo "missing $DAEMON"
+		return 1
+	fi
+	mkdir -p /var/run
+	cleanup_stale_runtime
+	"$DAEMON" --socket "$SOCKET_PATH" >>"$LOG" 2>&1 &
+	PID=$!
+	echo "$PID" > "$PIDFILE"
+	sleep 1
+	if ! pid_is_running "$PID"; then
+		rm -f "$PIDFILE"
+		return 1
+	fi
+	return 0
+}
+
+start() {
+	printf "Starting remotectl input: "
+	load_conf
+	if [ "${1:-}" != "force" ] && [ "${ENABLED:-1}" != "1" ]; then
+		echo "disabled"
+		return 0
+	fi
+	if is_running; then
+		echo "already running"
+		return 0
+	fi
+	if start_daemon; then
+		echo "OK"
+		return 0
+	fi
+	echo "FAILED"
+	return 1
+}
+
+stop() {
+	printf "Stopping remotectl input: "
+	if kill_daemon_pids TERM; then
+		if ! wait_for_exit; then
+			kill_daemon_pids KILL || true
+		fi
+	fi
+	rm -f "$PIDFILE"
+	rm -f "$SOCKET_PATH"
+	echo "OK"
+	return 0
+}
+
+status() {
+	load_conf
+	if is_running; then
+		echo "running pid=$(cat "$PIDFILE") socket=${SOCKET_PATH}" 
+		return 0
+	fi
+	echo "stopped socket=${SOCKET_PATH} enabled=${ENABLED:-1}"
+	return 1
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	force-start)
+		start force
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	status)
+		status
+		;;
+	*)
+		echo "Usage: $0 {start|force-start|stop|restart|status}"
+		exit 1
+		;;
+esac

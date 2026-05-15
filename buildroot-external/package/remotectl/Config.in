@@ -1,0 +1,12 @@
+config BR2_PACKAGE_REMOTECTL
+	bool "remotectl"
+	depends on BR2_PACKAGE_ALLIUM_SP
+	select BR2_PACKAGE_FFMPEG
+	select BR2_PACKAGE_FFMPEG_FFMPEG
+	select BR2_PACKAGE_FFMPEG_GPL
+	select BR2_PACKAGE_FFMPEG_SWSCALE
+	select BR2_PACKAGE_X264
+	help
+	  Optional remote UI testing helper for MinUI. Installs a local uinput-backed
+	  virtual gamepad daemon and a CLI client (remotectl) for driving
+	  MinUI UI navigation over SSH without patching input handling.

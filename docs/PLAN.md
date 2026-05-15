@@ -4,7 +4,9 @@ Play is an Allium-native libretro runtime. It lives inside Allium, shares Allium
 
 This plan walks you through building Play from scratch, stage by stage, until it can become an opt-in daily-use runtime on a Miyoo Mini Plus. PicoArch and MinArch are references for behavior, edge cases, and pitfalls only. Do not copy their global-state C architecture, and do not treat MinArch/MiniUI save-state compatibility as a requirement.
 
-Verified target: Miyoo Mini Plus. Design target: small backend seams that can support a future RG35xxSP port when Allium is ported there. Do not add RG35xxSP code now.
+Verified target: Miyoo Mini Plus. RG35XXSP build-only bring-up is now in scope through `make sp`, Buildroot 2026.02.1, and the `rg35xxsp` Cargo feature. On macOS, `make sp` runs the Linux Buildroot path through an amd64 OrbStack Ubuntu VM named `allium-buildroot-amd64`.
+
+RG35XXSP uses Buildroot as a small firmware foundation. Buildroot owns U-Boot/ATF, Linux, firmware, rootfs services, filesystems, and image assembly. Allium, RetroArch, and libretro cores build outside Buildroot into `dist/sp/payload`; Buildroot copies that payload into the `/mnt/SDCARD` seed for the final flashable image.
 
 It is a learning plan, not a spec. Each stage has a clear goal, a small list of new things to learn, manual + automated checks, and a commit. Stages build on each other — don't skip ahead.
 

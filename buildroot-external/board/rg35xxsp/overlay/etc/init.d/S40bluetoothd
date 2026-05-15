@@ -1,0 +1,454 @@
+#!/bin/sh
+
+PATH="/usr/sbin:/sbin:/usr/bin:/bin"
+[ -r /etc/init.d/simon-common.sh ] && . /etc/init.d/simon-common.sh
+
+PERSIST_DIR="/mnt/SDCARD/.allium/state/bluetooth/bluez"
+BT_STATE_DIR="/var/lib/bluetooth"
+BTD_PIDFILE="/var/run/bluetoothd.pid"
+BLUEALSA_PIDFILE="/var/run/bluealsa.pid"
+LOGFILE="/tmp/bt-init.log"
+BT_AUDIO_GLOBAL_CONF="/mnt/SDCARD/.allium/config/asound.conf"
+BT_AUDIO_USER_RC="/mnt/SDCARD/.allium/config/asoundrc.compat"
+BT_STATE_FILE="/mnt/SDCARD/.allium/config/bluetooth.conf"
+BT_DEVICE_ALIAS="${BT_DEVICE_ALIAS:-Anbernic RG35xxSP}"
+BT_BLUEALSA_KEEP_ALIVE="${BT_BLUEALSA_KEEP_ALIVE:-5}"
+BT_BLUEALSA_IO_RT_PRIO="${BT_BLUEALSA_IO_RT_PRIO:-5}"
+BT_BLUEALSA_SBC_QUALITY="${BT_BLUEALSA_SBC_QUALITY:-medium}"
+
+UART_CANDIDATES="${BT_UART:-/dev/ttyS1 /dev/ttyS0}"
+UART_SPEEDS="${BT_UART_SPEEDS:-1500000 115200}"
+BT_PROTOCOLS="${BT_PROTOCOLS:-3wire h4}"
+BT_DISABLE_ERTM="${BT_DISABLE_ERTM:-1}"
+
+log() {
+	echo "$(date +"%F %T") $*" >> "$LOGFILE"
+}
+
+find_bluetoothd() {
+	if command -v bluetoothd >/dev/null 2>&1; then
+		command -v bluetoothd
+		return 0
+	fi
+	for p in /usr/libexec/bluetooth/bluetoothd /usr/lib/bluetooth/bluetoothd /usr/libexec/bluetoothd; do
+		if [ -x "$p" ]; then
+			echo "$p"
+			return 0
+		fi
+	done
+	return 1
+}
+
+restore_default_audio_route_if_stale() {
+	tmp="${BT_AUDIO_GLOBAL_CONF}.tmp"
+	mkdir -p "$(dirname "$BT_AUDIO_GLOBAL_CONF")" >/dev/null 2>&1 || true
+
+	if [ -f "$BT_AUDIO_GLOBAL_CONF" ] && ! grep -q "type bluealsa" "$BT_AUDIO_GLOBAL_CONF" 2>/dev/null; then
+		return 0
+	fi
+
+	if amixer -D bluealsa controls 2>/dev/null | grep -q "A2DP Playback Volume"; then
+		return 0
+	fi
+
+	cat > "$tmp" <<'ASOUND_EOF'
+pcm.!default {
+    type plug
+    slave.pcm "dmixer"
+}
+
+pcm.dmixer {
+    type dmix
+    ipc_key 1024
+    slave {
+        pcm "hw:0,0"
+        period_time 0
+        period_size 256
+        buffer_size 4096
+        rate 48000
+    }
+    bindings {
+        0 0
+        1 1
+    }
+}
+
+ctl.!default {
+    type hw
+    card 0
+}
+ASOUND_EOF
+
+	sync
+	mv "$tmp" "$BT_AUDIO_GLOBAL_CONF" 2>/dev/null || {
+		rm -f "$tmp"
+		return 1
+	}
+	rm -f "$BT_AUDIO_USER_RC"
+	log "restored default audio route at bluetooth start (stale bluealsa)"
+	return 0
+}
+
+sdcard_mounted() {
+	if command -v simon_sdcard_mounted >/dev/null 2>&1; then
+		simon_sdcard_mounted
+	else
+		mountpoint -q /mnt/SDCARD >/dev/null 2>&1
+	fi
+}
+
+bt_state_is_bound() {
+	if command -v simon_bind_mount_active >/dev/null 2>&1; then
+		simon_bind_mount_active "$PERSIST_DIR" "$BT_STATE_DIR"
+	else
+		awk -v src="$PERSIST_DIR" -v dst="$BT_STATE_DIR" '$1 == src && $2 == dst { found=1 } END { exit(found ? 0 : 1) }' /proc/mounts >/dev/null 2>&1
+	fi
+}
+
+bind_state_from_persist() {
+	mkdir -p "$PERSIST_DIR" "$BT_STATE_DIR"
+	if bt_state_is_bound; then
+		return 0
+	fi
+	mount --bind "$PERSIST_DIR" "$BT_STATE_DIR" >/dev/null 2>&1 || return 1
+	bt_state_is_bound
+}
+
+sync_state_from_persist() {
+	if ! sdcard_mounted; then
+		return 0
+	fi
+	mkdir -p "$PERSIST_DIR" "$BT_STATE_DIR"
+	if bt_state_is_bound || bind_state_from_persist; then
+		return 0
+	fi
+	cp -a "$PERSIST_DIR"/. "$BT_STATE_DIR"/ 2>/dev/null || true
+}
+
+sync_state_to_persist() {
+	if ! sdcard_mounted; then
+		return 0
+	fi
+	if bt_state_is_bound; then
+		return 0
+	fi
+	mkdir -p "$PERSIST_DIR"
+
+	# Non-destructive sync: never wipe persisted pairing DB from a transiently empty runtime state.
+	if [ -z "$(find "$BT_STATE_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
+		log "skip state sync: runtime bluetooth DB is empty"
+		return 0
+	fi
+
+	cp -a "$BT_STATE_DIR"/. "$PERSIST_DIR"/ 2>/dev/null || true
+}
+
+wait_hci0() {
+	timeout_s="${1:-4}"
+	i=0
+	while [ "$i" -lt "$timeout_s" ]; do
+		[ -d /sys/class/bluetooth/hci0 ] && return 0
+		i=$((i + 1))
+		sleep 1
+	done
+	return 1
+}
+
+start_attach() {
+	uart=""
+	speed=""
+	proto=""
+
+	killall btattach >/dev/null 2>&1 || true
+
+	for uart in $UART_CANDIDATES; do
+		[ -e "$uart" ] || continue
+		for proto in $BT_PROTOCOLS; do
+			for speed in $UART_SPEEDS; do
+				log "btattach try uart=$uart proto=$proto speed=$speed"
+				btattach -B "$uart" -P "$proto" -S "$speed" >/tmp/btattach.log 2>&1 &
+				sleep 1
+				if wait_hci0 2; then
+					log "btattach success uart=$uart proto=$proto speed=$speed"
+					return 0
+				fi
+				killall btattach >/dev/null 2>&1 || true
+			done
+		done
+	done
+
+	return 1
+}
+
+ensure_transport_ready() {
+	if command -v modprobe >/dev/null 2>&1; then
+		modprobe hidp >/dev/null 2>&1 || true
+		modprobe rfcomm >/dev/null 2>&1 || true
+		modprobe hci_uart >/dev/null 2>&1 || true
+		modprobe btrtl >/dev/null 2>&1 || true
+	fi
+
+	if wait_hci0 2; then
+		return 0
+	fi
+
+	start_attach || return 1
+	wait_hci0 3
+}
+
+apply_bt_compat_tweaks() {
+	if [ "$BT_DISABLE_ERTM" = "1" ] && [ -w /sys/module/bluetooth/parameters/disable_ertm ]; then
+		echo Y > /sys/module/bluetooth/parameters/disable_ertm 2>/dev/null || true
+		log "disable_ertm=$(cat /sys/module/bluetooth/parameters/disable_ertm 2>/dev/null || echo '?')"
+	fi
+}
+
+start_dbus_if_needed() {
+	if [ -x /etc/init.d/S30dbus-daemon ] && ! pidof dbus-daemon >/dev/null 2>&1; then
+		/etc/init.d/S30dbus-daemon start >/dev/null 2>&1 || true
+	fi
+}
+
+start_bluetoothd_if_needed() {
+	btd=""
+	if pidof bluetoothd >/dev/null 2>&1; then
+		return 0
+	fi
+	btd="$(find_bluetoothd 2>/dev/null || true)"
+	if [ -n "$btd" ] && [ -x "$btd" ]; then
+		start-stop-daemon -S -q -b -m -p "$BTD_PIDFILE" -x "$btd" -- -n >/dev/null 2>&1 || true
+	fi
+}
+
+stop_bluetoothd() {
+	killall bluetoothd >/dev/null 2>&1 || true
+	rm -f "$BTD_PIDFILE"
+}
+
+bluez_has_adapter() {
+	dbus-send --system --print-reply --dest=org.bluez / org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null | grep -q 'object path "/org/bluez/hci'
+}
+
+wait_bluez_adapter() {
+	timeout_s="${1:-4}"
+	i=0
+	while [ "$i" -lt "$timeout_s" ]; do
+		if bluez_has_adapter; then
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	return 1
+}
+
+set_adapter_alias() {
+	name="$BT_DEVICE_ALIAS"
+	i=0
+	[ -n "$name" ] || return 0
+
+	while [ "$i" -lt 3 ]; do
+		if dbus-send --system --dest=org.bluez --type=method_call \
+			/org/bluez/hci0 org.freedesktop.DBus.Properties.Set \
+			string:org.bluez.Adapter1 string:Alias variant:string:"$name" >/dev/null 2>&1; then
+			log "adapter alias set to $name"
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+
+	log "failed to set adapter alias to $name"
+	return 1
+}
+
+set_fast_connectable() {
+	if command -v btmgmt >/dev/null 2>&1; then
+		if btmgmt -i hci0 fast-conn on >/dev/null 2>&1 || btmgmt --index 0 fast-conn on >/dev/null 2>&1; then
+			log "btmgmt fast-conn enabled"
+		fi
+	fi
+	return 0
+}
+
+autoconnect_last_audio_async() {
+	addr=""
+	obj_path=""
+
+	[ -r "$BT_STATE_FILE" ] || return 0
+	addr=$(sed -n 's/^bluetooth_audio_addr=//p' "$BT_STATE_FILE" | head -n 1 | tr -d '\r\n')
+
+	case "$addr" in
+		[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f])
+			;;
+		*)
+			return 0
+			;;
+	esac
+
+	obj_path="/org/bluez/hci0/dev_$(echo "$addr" | tr ':' '_')"
+	(
+		i=0
+		sleep 1
+		while [ "$i" -lt 3 ]; do
+			if dbus-send --system --dest=org.bluez --type=method_call "$obj_path" org.bluez.Device1.Connect >/dev/null 2>&1; then
+				log "requested autoconnect for $addr"
+				exit 0
+			fi
+			i=$((i + 1))
+			sleep 1
+		done
+		exit 0
+	) &
+	return 0
+}
+
+recover_hci_uart_h5() {
+	if [ ! -w /sys/bus/serial/drivers/hci_uart_h5/unbind ] || [ ! -w /sys/bus/serial/drivers/hci_uart_h5/bind ]; then
+		return 1
+	fi
+	if [ ! -e /sys/bus/serial/drivers/hci_uart_h5/serial0-0 ]; then
+		return 1
+	fi
+
+	log "no BlueZ adapter, rebinding hci_uart_h5/serial0-0"
+	echo serial0-0 > /sys/bus/serial/drivers/hci_uart_h5/unbind 2>/dev/null || return 1
+	sleep 1
+	echo serial0-0 > /sys/bus/serial/drivers/hci_uart_h5/bind 2>/dev/null || return 1
+	return 0
+}
+
+start_bluealsa_if_needed() {
+	bluealsa_bin=""
+
+	if pidof bluealsa >/dev/null 2>&1 || pidof bluealsad >/dev/null 2>&1; then
+		return 0
+	fi
+
+	if command -v bluealsa >/dev/null 2>&1; then
+		bluealsa_bin="$(command -v bluealsa)"
+	elif [ -x /usr/bin/bluealsa ]; then
+		bluealsa_bin="/usr/bin/bluealsa"
+	elif [ -x /usr/bin/bluealsad ]; then
+		bluealsa_bin="/usr/bin/bluealsad"
+	fi
+
+	if [ -z "$bluealsa_bin" ] || [ ! -x "$bluealsa_bin" ]; then
+		log "bluealsa binary not found"
+		return 0
+	fi
+
+	keep_alive="$BT_BLUEALSA_KEEP_ALIVE"
+	io_rt_prio="$BT_BLUEALSA_IO_RT_PRIO"
+	sbc_quality="$BT_BLUEALSA_SBC_QUALITY"
+
+	case "$keep_alive" in
+		''|*[!0-9]*) keep_alive=5 ;;
+	esac
+	case "$io_rt_prio" in
+		''|*[!0-9]*) io_rt_prio=5 ;;
+	esac
+	case "$sbc_quality" in
+		low|medium|high|xq) ;;
+		*) sbc_quality=medium ;;
+	esac
+
+	log "starting bluealsa via $bluealsa_bin keep_alive=$keep_alive io_rt_prio=$io_rt_prio sbc_quality=$sbc_quality"
+	start-stop-daemon -S -q -b -m -p "$BLUEALSA_PIDFILE" -x "$bluealsa_bin" -- \
+		-p a2dp-source --keep-alive="$keep_alive" --io-rt-priority="$io_rt_prio" --sbc-quality="$sbc_quality" \
+		>/tmp/bluealsa.log 2>&1 || true
+}
+
+stop_bluealsa() {
+	killall bluealsa >/dev/null 2>&1 || true
+	killall bluealsad >/dev/null 2>&1 || true
+	rm -f "$BLUEALSA_PIDFILE"
+}
+
+start() {
+	printf 'Starting bluetooth stack: '
+
+	if [ "${SIMON_BLUETOOTH_FORCE_START:-0}" != "1" ] && ! sdcard_mounted; then
+		echo "deferred"
+		return 0
+	fi
+
+	rfkill unblock bluetooth >/dev/null 2>&1 || true
+	restore_default_audio_route_if_stale || true
+	sync_state_from_persist
+	ensure_transport_ready || {
+		echo "no hci0"
+		log "no hci0 transport"
+		return 1
+	}
+	apply_bt_compat_tweaks
+	start_dbus_if_needed
+	start_bluetoothd_if_needed
+
+	if ! pidof bluetoothd >/dev/null 2>&1; then
+		echo "failed"
+		log "bluetoothd failed to start"
+		return 1
+	fi
+
+	if ! wait_bluez_adapter 3; then
+		if recover_hci_uart_h5; then
+			stop_bluetoothd
+			sleep 1
+			start_bluetoothd_if_needed
+			wait_bluez_adapter 4 || log "adapter still missing after hci_uart_h5 rebind"
+		else
+			log "adapter missing and no recovery path"
+		fi
+	fi
+
+	set_adapter_alias || true
+	set_fast_connectable
+	start_bluealsa_if_needed
+	autoconnect_last_audio_async
+	echo "OK"
+	return 0
+}
+
+stop() {
+	printf 'Stopping bluetooth stack: '
+	sync_state_to_persist
+	stop_bluealsa
+	stop_bluetoothd
+	killall btattach >/dev/null 2>&1 || true
+	rfkill block bluetooth >/dev/null 2>&1 || true
+	echo "OK"
+	return 0
+}
+
+scan_on() {
+	start || return 1
+	return 0
+}
+
+scan_off() {
+	return 0
+}
+
+case "$1" in
+	start|stop)
+		"$1"
+		;;
+	restart|reload)
+		stop
+		start
+		;;
+	scan-on)
+		scan_on
+		;;
+	scan-off)
+		scan_off
+		;;
+	restore-audio-route-if-stale)
+		restore_default_audio_route_if_stale
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload|scan-on|scan-off|restore-audio-route-if-stale}" >&2
+		exit 1
+		;;
+esac

@@ -1,0 +1,34 @@
+upstream_repo=https://github.com/shauninman/MinUI
+upstream_tag=v20251127-1
+upstream_commit=dbf89435a5179788418ff3573042cf9c7e75d9e0
+
+imported_paths:
+- all/common -> src/common
+- all/minui/minui.c -> src/main/main.c
+- all/minarch/minarch.c -> src/minarch/minarch.c
+- rg35xxplus/platform -> src/platform/rg35xxplus
+- rg35xxplus/keymon -> src/keymon
+- rg35xxplus/libmsettings -> src/libmsettings
+- rg35xxplus/show/show.c -> src/show/show.c
+- rg35xxplus/init/init.c -> src/init/init.c
+- SYSTEM/res -> assets/res
+- SYSTEM/rg35xxplus/system.cfg -> assets/system.cfg
+- SYSTEM/rg35xxplus default core configs -> assets/cores/*.cfg
+- EXTRAS/rg35xxplus default core configs -> assets/cores/*.cfg
+
+local_glue_files:
+- src/common/core_registry.c
+- src/common/core_registry.h
+- assets/minui-session.sh
+- assets/S16minui
+- assets/defaults/asound.conf
+- assets/dat/systems.cfg
+
+local_patches:
+- src/common/defines.h: replace stock-firmware paths with FHS/runtime paths.
+- src/common/utils.c: resolve cores via manifest registry and preserve upstream launch tags as system ids.
+- src/main/main.c: remove payload launcher flow and exec /usr/bin/minarch with packaged core .so paths.
+- src/minarch/minarch.c: load per-launch defaults from /usr/share/minui/cores, store saves/states under /mnt/sdcard/{saves,system/minui}, and resolve manifest save ids without extending upstream core state.
+- src/common/scaler.[ch]: only enable imported ARMv7 NEON scaler code for ARM32 builds and use the C scaler path on aarch64.
+- assets/minui-session.sh: use MinUI-owned runtime naming while keeping board helper integration.
+- minui.mk: build/import upstream binaries as a Buildroot-first package and install to FHS paths.

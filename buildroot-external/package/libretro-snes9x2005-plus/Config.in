@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_SNES9X2005_PLUS
+	bool "libretro-snes9x2005-plus"
+	default n
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Restored snes9x2005-plus core package for Allium.

@@ -58,7 +58,7 @@ pub fn scale_xrgb8888_to_xrgb8888(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "miyoo", feature = "rg35xxsp")), allow(dead_code))]
 pub fn scale_rgb565_to_rgb565(
     frame: &CapturedFrame,
     output: &mut [u8],
@@ -91,7 +91,7 @@ pub fn scale_rgb565_to_rgb565(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "miyoo", feature = "rg35xxsp")), allow(dead_code))]
 pub fn scale_rgb565_to_bgra8888(
     frame: &CapturedFrame,
     output: &mut [u8],
@@ -127,7 +127,7 @@ pub fn scale_rgb565_to_bgra8888(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+#[cfg_attr(not(any(feature = "miyoo", feature = "rg35xxsp")), allow(dead_code))]
 pub fn scale_xrgb8888_to_bgra8888(
     frame: &CapturedFrame,
     output: &mut [u8],

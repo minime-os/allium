@@ -1,0 +1,2 @@
+source "$BR2_EXTERNAL_ALLIUM_EXTERNAL_PATH/board/rg35xxsp/Config.in"
+source "$BR2_EXTERNAL_ALLIUM_EXTERNAL_PATH/package/allium-support/Config.in"

@@ -1,0 +1,38 @@
+From feea511fda857d6841a2a09487972561a0eed285 Mon Sep 17 00:00:00 2001
+From: Philippe Alliums <simons.philippe@gmail.com>
+Date: Sun, 22 Feb 2026 16:23:46 +0300
+Subject: [PATCH] rg35xx: enable pwm backlight
+
+---
+ .../allwinner/sun50i-h700-anbernic-rg35xx-2024.dts    | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts b/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts
+index 855ee0b43..7fe166db3 100644
+--- a/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts
++++ b/arch/arm64/boot/dts/allwinner/sun50i-h700-anbernic-rg35xx-2024.dts
+@@ -22,9 +22,10 @@ aliases {
+ 	};
+ 
+ 	backlight: backlight {
+-		compatible = "gpio-backlight";
+-		gpios = <&pio 3 28 GPIO_ACTIVE_HIGH>; // PD28
+-		default-on;
++		compatible = "pwm-backlight";
++		pwms = <&pwm 0 40000 0>;
++		pinctrl-0 = <&pwm0_pin>;
++		pinctrl-names = "default";
+ 	};
+ 
+ 	battery: battery {
+@@ -493,3 +494,7 @@ &tcon_lcd0 {
+ &tcon_lcd0_out_lcd {
+ 	remote-endpoint = <&panel_in_rgb>;
+ };
++
++&pwm {
++	status = "okay";
++};
+-- 
+2.47.3
+

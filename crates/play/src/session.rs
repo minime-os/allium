@@ -10,13 +10,13 @@ use crate::paths::PlayPaths;
 use crate::scale::ScaleMode;
 use crate::udp::CommandState;
 use crate::video::frame::{CapturedFrame, VideoFrameFormat};
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 use crate::video::miyoo::MiyooVideo;
 #[cfg(feature = "simulator")]
 use crate::video::simulator::SimulatorVideo;
 use crate::video::{self, VideoBackend};
 use anyhow::{Context, Result, anyhow};
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 use common::platform::{DefaultPlatform, Platform};
 use log::{debug, info, warn};
 use std::ffi::CString;
@@ -254,7 +254,7 @@ impl PlaySession {
         let target_fps = av_info.timing.fps;
         let audio_sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
         let frame_interval = frame_interval(target_fps)?;
-        #[cfg(feature = "miyoo")]
+        #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
         let mut platform = DefaultPlatform::new()?;
         let mut frames_run = 0u64;
         let started_at = Instant::now();
@@ -271,7 +271,7 @@ impl PlaySession {
             av_info.geometry.aspect_ratio,
             self.args.scale,
         )?;
-        #[cfg(feature = "miyoo")]
+        #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
         let mut miyoo_video = MiyooVideo::new(
             av_info.geometry.base_width,
             av_info.geometry.base_height,
@@ -283,7 +283,7 @@ impl PlaySession {
         self.audio_producer = Some(audio_producer);
         #[cfg(feature = "simulator")]
         let _audio = crate::audio::SimulatorAudio::new(audio_sample_rate, audio_consumer)?;
-        #[cfg(feature = "miyoo")]
+        #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
         let _audio = crate::audio::MiyooAudio::new(audio_sample_rate, audio_consumer)?;
         let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
         let command_state = Arc::clone(&self.command_state);
@@ -311,7 +311,7 @@ impl PlaySession {
                 self.apply_control_event(event)?;
                 #[cfg(feature = "simulator")]
                 self.apply_scale_to_simulator_video(&mut simulator_video)?;
-                #[cfg(feature = "miyoo")]
+                #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
                 self.apply_scale_to_miyoo_video(&mut miyoo_video)?;
             }
             if self.should_quit {
@@ -319,7 +319,7 @@ impl PlaySession {
                 break;
             }
 
-            #[cfg(feature = "miyoo")]
+            #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
             self.poll_platform_input(&mut platform).await;
             if !self.paused {
                 self.core
@@ -335,7 +335,7 @@ impl PlaySession {
             }
             #[cfg(feature = "simulator")]
             self.apply_simulator_input(&mut simulator_video);
-            #[cfg(feature = "miyoo")]
+            #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
             self.present_miyoo_frame(&mut miyoo_video)?;
             next_frame_at += frame_interval;
 
@@ -370,7 +370,7 @@ impl PlaySession {
                     self.apply_control_event(event)?;
                     #[cfg(feature = "simulator")]
                     self.apply_scale_to_simulator_video(&mut simulator_video)?;
-                    #[cfg(feature = "miyoo")]
+                    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
                     self.apply_scale_to_miyoo_video(&mut miyoo_video)?;
                 }
             }
@@ -530,7 +530,7 @@ impl PlaySession {
         Ok(result.should_quit)
     }
 
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     fn present_miyoo_frame(&self, video: &mut MiyooVideo) -> Result<()> {
         let frame = match &self.captured_frame {
             Some(frame) => frame,
@@ -567,7 +567,7 @@ impl PlaySession {
         Ok(())
     }
 
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     async fn poll_platform_input(&mut self, platform: &mut DefaultPlatform) {
         while let Ok(key_event) =
             tokio::time::timeout(Duration::from_millis(1), platform.poll()).await
@@ -658,7 +658,7 @@ impl PlaySession {
         )
     }
 
-    #[cfg(feature = "miyoo")]
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     fn apply_scale_to_miyoo_video(&self, video: &mut MiyooVideo) -> Result<()> {
         let av_info = self
             .av_info

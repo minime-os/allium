@@ -1,0 +1,3 @@
+# Dropbear local overrides for Allium RG35xxSP image
+# Disable SSH password logins; use SD-backed root authorized_keys managed by S50dropbear.
+DROPBEAR_ARGS="-s"

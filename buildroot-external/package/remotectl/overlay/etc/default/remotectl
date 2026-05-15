@@ -1,0 +1,5 @@
+# Remotectl input service configuration
+# Set to 0 to disable normal start; use /etc/init.d/S15remotectl force-start for a manual session.
+ENABLED=1
+# Optional override for the daemon control socket path.
+SOCKET_PATH=/tmp/remotectl.sock

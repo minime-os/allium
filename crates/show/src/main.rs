@@ -1,5 +1,4 @@
 #![warn(clippy::all, rust_2018_idioms)]
-#![feature(iter_array_chunks)]
 
 use std::path::{Path, PathBuf};
 
@@ -88,11 +87,11 @@ fn show(fb: &Framebuffer, frame: &mut [u8], path: impl AsRef<Path>) -> Result<()
 }
 
 fn darken(frame: &mut [u8], color: Color, alpha: u8) {
-    frame.iter_mut().array_chunks().for_each(|[b, g, r, _]| {
-        let pixel = Color::new(*r, *g, *b);
+    for pixel_bytes in frame.chunks_exact_mut(4) {
+        let pixel = Color::new(pixel_bytes[2], pixel_bytes[1], pixel_bytes[0]);
         let color = pixel.blend(color.overlay(pixel), alpha);
-        *b = color.b();
-        *g = color.g();
-        *r = color.r();
-    });
+        pixel_bytes[0] = color.b();
+        pixel_bytes[1] = color.g();
+        pixel_bytes[2] = color.r();
+    }
 }

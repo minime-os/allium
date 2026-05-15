@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LIBRETRO_MEDNAFEN_SUPAFAUST
+	bool "libretro-mednafen-supafaust"
+	default y
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Extra SUPA core package for Allium.

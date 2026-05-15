@@ -1,0 +1,10 @@
+#!/bin/sh
+
+case "$1" in
+  start)
+    tcpsvd -vE 0.0.0.0 21 ftpd -w / &
+    ;;
+  stop)
+    killall tcpsvd >/dev/null 2>&1 || true
+    ;;
+esac

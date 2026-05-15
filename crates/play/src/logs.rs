@@ -4,17 +4,17 @@ use simple_logger::SimpleLogger;
 
 // On hardware there is no terminal, so stderr must become a file before logging starts.
 pub fn init() -> Result<()> {
-    #[cfg(feature = "miyoo")]
-    init_miyoo()?;
+    #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
+    init_hardware()?;
 
     SimpleLogger::new().with_level(LevelFilter::Info).init()?;
 
     Ok(())
 }
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
 // dup2 redirects simple_logger output without teaching the logger about files.
-fn init_miyoo() -> Result<()> {
+fn init_hardware() -> Result<()> {
     use common::constants::ALLIUM_PLAY_LOG;
     use std::fs;
     use std::os::unix::io::AsRawFd;

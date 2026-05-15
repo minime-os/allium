@@ -1,0 +1,5 @@
+config BR2_PACKAGE_LIBRETRO_COMMON
+	bool
+	help
+	  Build-time libretro API header package pinned to the libretro-common
+	  commit aligned with the tracked RetroArch stable release.

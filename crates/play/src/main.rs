@@ -1,5 +1,5 @@
-#[cfg(not(any(feature = "simulator", feature = "miyoo")))]
-compile_error!("pick `simulator` or `miyoo` feature");
+#[cfg(not(any(feature = "simulator", feature = "miyoo", feature = "rg35xxsp")))]
+compile_error!("pick `simulator`, `miyoo`, or `rg35xxsp` feature");
 
 mod args;
 mod audio;

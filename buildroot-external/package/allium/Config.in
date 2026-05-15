@@ -1,0 +1,16 @@
+config BR2_PACKAGE_ALLIUM
+	bool "allium"
+	depends on BR2_PACKAGE_ALLIUM_SP
+	help
+	  Copy the externally built Allium RG35XXSP payload and seed it into
+	  /mnt/SDCARD/.allium.
+
+if BR2_PACKAGE_ALLIUM
+
+config BR2_PACKAGE_ALLIUM_PAYLOAD_DIR
+	string "Allium payload directory"
+	default "$(TOPDIR)/../payload"
+	help
+	  Directory produced by the top-level SP payload build.
+
+endif

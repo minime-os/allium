@@ -1,0 +1,104 @@
+#!/bin/sh
+#
+# Starts dropbear sshd with persistent host keys on SD card.
+#
+
+# Allow a few customizations from a config file
+test -r /etc/default/dropbear && . /etc/default/dropbear
+
+PERSISTENT_KEYS_DIR="/mnt/SDCARD/.allium/config"
+PERSISTENT_AUTH_KEYS="${PERSISTENT_KEYS_DIR}/authorized_keys"
+
+has_authorized_keys() {
+	[ -s "$PERSISTENT_AUTH_KEYS" ] || return 1
+	grep -q '^[[:space:]]*[^#[:space:]]' "$PERSISTENT_AUTH_KEYS" 2>/dev/null
+}
+
+ensure_symlink_target() {
+	link_path="$1"
+	target_path="$2"
+	if [ -L "$link_path" ] && [ "$(readlink "$link_path" 2>/dev/null)" = "$target_path" ]; then
+		return 0
+	fi
+	rm -rf "$link_path" 2>/dev/null || true
+	ln -snf "$target_path" "$link_path"
+}
+
+maybe_enable_password_login_fallback() {
+	case " $DROPBEAR_ARGS " in
+	*" -s "*) ;;
+	*) return 0 ;;
+	esac
+
+	if has_authorized_keys; then
+		return 0
+	fi
+
+	echo "Warning: ${PERSISTENT_AUTH_KEYS} has no SSH keys, enabling password login fallback"
+
+	set -- $DROPBEAR_ARGS
+	DROPBEAR_ARGS=""
+	for arg in "$@"; do
+		[ "$arg" = "-s" ] && continue
+		if [ -n "$DROPBEAR_ARGS" ]; then
+			DROPBEAR_ARGS="$DROPBEAR_ARGS $arg"
+		else
+			DROPBEAR_ARGS="$arg"
+		fi
+	done
+}
+
+start() {
+	DROPBEAR_ARGS="$DROPBEAR_ARGS -R"
+
+	# Ensure persistent key storage exists on SD card
+	if [ -d /mnt/SDCARD ]; then
+		mkdir -p "$PERSISTENT_KEYS_DIR"
+		[ -f "$PERSISTENT_AUTH_KEYS" ] || : > "$PERSISTENT_AUTH_KEYS"
+		chmod 600 "$PERSISTENT_AUTH_KEYS" 2>/dev/null || true
+		mkdir -p /root/.ssh 2>/dev/null || true
+		ensure_symlink_target /root/.ssh/authorized_keys "$PERSISTENT_AUTH_KEYS" 2>/dev/null || true
+		# Point /etc/dropbear to persistent storage
+		ensure_symlink_target /etc/dropbear "$PERSISTENT_KEYS_DIR" 2>/dev/null || true
+	else
+		# Fallback: SD card not mounted, use tmpfs
+		mkdir -p /var/run/dropbear
+		ensure_symlink_target /etc/dropbear /var/run/dropbear 2>/dev/null || true
+		echo "Warning: SD card not mounted, SSH host keys will not persist"
+	fi
+
+	maybe_enable_password_login_fallback
+
+	printf "Starting dropbear sshd: "
+	umask 077
+
+	start-stop-daemon -S -q -p /var/run/dropbear.pid \
+		--exec /usr/sbin/dropbear -- $DROPBEAR_ARGS
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+stop() {
+	printf "Stopping dropbear sshd: "
+	start-stop-daemon -K -q -p /var/run/dropbear.pid
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart|reload)
+	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?

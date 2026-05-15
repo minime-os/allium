@@ -1,0 +1,135 @@
+#!/bin/sh
+
+PATH="/usr/sbin:/sbin:/usr/bin:/bin"
+
+PIDFILE="/var/run/ntpd.pid"
+RTC_SYNC_PIDFILE="/var/run/ntp-rtc-sync.pid"
+NTP_PEERS="${NTP_PEERS:-0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org}"
+NTP_MIN_EPOCH="${NTP_MIN_EPOCH:-1577836800}" # 2020-01-01 UTC
+RTC_SYNC_INTERVAL="${RTC_SYNC_INTERVAL:-30}"
+RTC_SYNC_MAX_TRIES="${RTC_SYNC_MAX_TRIES:-0}" # 0 = unlimited while ntpd runs
+
+find_ntpd() {
+	if command -v ntpd >/dev/null 2>&1; then
+		command -v ntpd
+		return 0
+	fi
+	if busybox --list 2>/dev/null | grep -qx ntpd; then
+		echo /bin/busybox
+		return 0
+	fi
+	return 1
+}
+
+ntpd_running() {
+	if [ -f "$PIDFILE" ]; then
+		pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+		[ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1 && return 0
+	fi
+	pidof ntpd >/dev/null 2>&1
+}
+
+find_pcf8563_rtc_dev() {
+	for r in /sys/class/rtc/rtc*; do
+		[ -d "$r" ] || continue
+		if [ -r "$r/name" ] && grep -qi pcf8563 "$r/name"; then
+			echo "/dev/$(basename "$r")"
+			return 0
+		fi
+	done
+	return 1
+}
+
+clock_is_sane() {
+	now="$(date +%s 2>/dev/null || echo 0)"
+	[ "$now" -ge "$NTP_MIN_EPOCH" ]
+}
+
+spawn_rtc_writeback_helper() {
+	[ -f "$RTC_SYNC_PIDFILE" ] && kill "$(cat "$RTC_SYNC_PIDFILE" 2>/dev/null)" >/dev/null 2>&1 || true
+	(
+		tries=0
+		while :; do
+			if ! ntpd_running; then
+				rm -f "$RTC_SYNC_PIDFILE"
+				exit 0
+			fi
+			if clock_is_sane; then
+				rtc_dev="$(find_pcf8563_rtc_dev 2>/dev/null || true)"
+				if [ -n "$rtc_dev" ] && [ -e "$rtc_dev" ]; then
+					hwclock -f "$rtc_dev" -w >/dev/null 2>&1 && { rm -f "$RTC_SYNC_PIDFILE"; exit 0; }
+				fi
+				hwclock -w >/dev/null 2>&1 && { rm -f "$RTC_SYNC_PIDFILE"; exit 0; }
+			fi
+			tries=$((tries + 1))
+			if [ "$RTC_SYNC_MAX_TRIES" -gt 0 ] && [ "$tries" -ge "$RTC_SYNC_MAX_TRIES" ]; then
+				rm -f "$RTC_SYNC_PIDFILE"
+				exit 0
+			fi
+			sleep "$RTC_SYNC_INTERVAL"
+		done
+	) >/dev/null 2>&1 &
+	echo $! > "$RTC_SYNC_PIDFILE"
+}
+
+start() {
+	printf "%s" "Starting ntpd: "
+
+	if ntpd_running; then
+		echo "already running"
+		spawn_rtc_writeback_helper
+		return 0
+	fi
+
+	ntpd_bin="$(find_ntpd 2>/dev/null || true)"
+	if [ -z "$ntpd_bin" ] || [ ! -x "$ntpd_bin" ]; then
+		echo "missing"
+		return 1
+	fi
+
+	set --
+	for peer in $NTP_PEERS; do
+		set -- "$@" -p "$peer"
+	done
+
+	if [ "$ntpd_bin" = "/bin/busybox" ]; then
+		start-stop-daemon -S -q -b -m -p "$PIDFILE" -x "$ntpd_bin" -- ntpd "$@" >/dev/null 2>&1 || {
+			echo "failed"
+			return 1
+		}
+	else
+		start-stop-daemon -S -q -b -m -p "$PIDFILE" -x "$ntpd_bin" -- "$@" >/dev/null 2>&1 || {
+			echo "failed"
+			return 1
+		}
+	fi
+
+	spawn_rtc_writeback_helper
+	echo "OK"
+	return 0
+}
+
+stop() {
+	printf "%s" "Stopping ntpd: "
+	[ -f "$RTC_SYNC_PIDFILE" ] && kill "$(cat "$RTC_SYNC_PIDFILE" 2>/dev/null)" >/dev/null 2>&1 || true
+	rm -f "$RTC_SYNC_PIDFILE"
+	[ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE" 2>/dev/null)" >/dev/null 2>&1 || true
+	killall ntpd >/dev/null 2>&1 || true
+	rm -f "$PIDFILE"
+	echo "OK"
+	return 0
+}
+
+case "$1" in
+	start|stop)
+		"$1"
+		;;
+	restart)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac

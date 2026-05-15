@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 simulator = ["common/simulator", "cpal", "softbuffer", "winit"]
 miyoo = ["common/miyoo", "framebuffer"]
+rg35xxsp = ["common/rg35xxsp", "framebuffer"]
 
 [dependencies]
 common = { path = "../common" }
