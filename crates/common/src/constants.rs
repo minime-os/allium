@@ -83,7 +83,7 @@ lazy_static! {
     pub static ref ALLIUM_LAUNCHER: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-launcher");
     pub static ref ALLIUM_MENU: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-menu");
     pub static ref ALLIUM_PLAY: PathBuf = ALLIUM_BASE_DIR.join("bin/play");
-    pub static ref ALLIUM_RETROARCH: PathBuf = ALLIUM_BASE_DIR.join("cores/retroarch/launch.sh");
+    pub static ref ALLIUM_RETROARCH: PathBuf = ALLIUM_SD_ROOT.join("RetroArch/retroarch");
 }
 
 // Styles

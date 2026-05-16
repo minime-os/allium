@@ -11,6 +11,7 @@ rg35xxsp = ["common/rg35xxsp", "framebuffer"]
 [dependencies]
 common = { path = "../common" }
 anyhow.workspace = true
+chrono.workspace = true
 log.workspace = true
 libloading = "0.8.9"
 nix = { workspace = true, features = ["fs"] }

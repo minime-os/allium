@@ -1,18 +1,19 @@
 ROOT_DIR := $(shell pwd)
 HOST_OS := $(shell uname -s)
 BUILD_DIR := target/armv7-unknown-linux-gnueabihf/release
-DIST_DIR := dist
+BOARD ?= miyoo
+DIST_ROOT := dist
+DIST_DIR := $(DIST_ROOT)/$(BOARD)
 SP_BUILDROOT_VERSION := 2026.02.1
-SP_DIST_DIR := $(DIST_DIR)/sp
-SP_BUILDROOT_DIR := $(SP_DIST_DIR)/buildroot
-SP_BUILDROOT_TARBALL := $(SP_DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION).tar.xz
+SP_BUILDROOT_DIR := $(DIST_DIR)/buildroot
+SP_BUILDROOT_TARBALL := $(DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION).tar.xz
 SP_BUILDROOT_URL := https://buildroot.org/downloads/buildroot-$(SP_BUILDROOT_VERSION).tar.xz
 SP_EXTERNAL_DIR := $(ROOT_DIR)/buildroot-external
 SP_BUILDROOT_HOST_STAMP := $(SP_BUILDROOT_DIR)/output/.allium-host-os
 SP_DEFCONFIG := $(SP_EXTERNAL_DIR)/configs/allium_rg35xxsp_defconfig
 SP_KERNEL_CONFIG := $(SP_EXTERNAL_DIR)/board/rg35xxsp/linux.config
-SP_GENERATED_KERNEL_CONFIG := $(abspath $(SP_DIST_DIR))/linux.config
-SP_PAYLOAD_DIR := $(abspath $(SP_DIST_DIR))/payload
+SP_GENERATED_KERNEL_CONFIG := $(abspath $(DIST_DIR))/linux.config
+SP_PAYLOAD_DIR := $(abspath $(DIST_DIR))/payload
 SP_PAYLOAD_SCRIPT := $(ROOT_DIR)/scripts/build-sp-payload.sh
 ORBSTACK_MACHINE ?= allium-buildroot-amd64
 ORBSTACK_ARCH ?= amd64
@@ -29,7 +30,20 @@ FEATURES ?=
 -include local.mk
 
 .PHONY: all
-all: dist build package-build $(DIST_DIR)/RetroArch/retroarch $(DIST_DIR)/.allium/bin/dufs $(DIST_DIR)/.allium/bin/syncthing $(DIST_DIR)/.allium/cores/drastic/drastic $(DIST_DIR)/Themes migrations strip-all
+all: all-$(BOARD)
+
+.PHONY: all-miyoo
+all-miyoo: dist build package-build $(DIST_DIR)/RetroArch/retroarch $(DIST_DIR)/.allium/bin/dufs $(DIST_DIR)/.allium/bin/syncthing $(DIST_DIR)/.allium/cores/drastic/drastic $(DIST_DIR)/Themes migrations strip-all
+
+.PHONY: all-sp
+all-sp: sp-check
+ifeq ($(HOST_OS),Linux)
+	$(MAKE) sp-linux
+else ifeq ($(HOST_OS),Darwin)
+	$(MAKE) sp-orbstack
+else
+	$(error unsupported host OS for make all BOARD=sp: $(HOST_OS))
+endif
 
 .PHONY: clean
 clean:
@@ -56,16 +70,6 @@ dist:
 	mkdir -p $(DIST_DIR)
 	rsync -a --exclude='.gitkeep' static/. $(DIST_DIR)
 
-.PHONY: sp
-sp: sp-check
-ifeq ($(HOST_OS),Linux)
-	$(MAKE) sp-linux
-else ifeq ($(HOST_OS),Darwin)
-	$(MAKE) sp-orbstack
-else
-	$(error unsupported host OS for make sp: $(HOST_OS))
-endif
-
 .PHONY: sp-orbstack
 sp-orbstack:
 	@command -v orb >/dev/null 2>&1 || { \
@@ -75,9 +79,9 @@ sp-orbstack:
 	@orb -m "$(ORBSTACK_MACHINE)" uname -s >/dev/null 2>&1 || orb create --arch "$(ORBSTACK_ARCH)" ubuntu "$(ORBSTACK_MACHINE)"
 	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'for tool in gcc g++ make cmake ccache mold ninja curl; do command -v "$$tool" >/dev/null 2>&1 || missing=1; done; test -f /usr/include/openssl/bio.h || missing=1; if [ "$$missing" = 1 ]; then sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y bash bc bison build-essential bzip2 ca-certificates ccache cmake cpio curl file findutils flex g++ gcc git gzip libncurses-dev libssl-dev locales lzip make mold ninja-build patch perl python3 rsync sed tar unzip wget xz-utils zstd; fi'
 	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'if ! command -v cargo >/dev/null 2>&1; then curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; fi'
-	orb -m "$(ORBSTACK_MACHINE)" sh -lc '. "$$HOME/.cargo/env" 2>/dev/null || true; cd "$(ROOT_DIR)" && make sp-linux SP_DIST_DIR="$(SP_ORBSTACK_DIST_DIR)" SP_BUILDROOT_DIR="$(SP_ORBSTACK_DIST_DIR)/buildroot" SP_BUILDROOT_TARBALL="$(SP_ORBSTACK_DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION).tar.xz" SP_BUILDROOT_HOST_STAMP="$(SP_ORBSTACK_DIST_DIR)/buildroot/output/.allium-host-os"'
-	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'mkdir -p "$(ROOT_DIR)/$(SP_DIST_DIR)/images" && cp -a "$(SP_ORBSTACK_DIST_DIR)/images/allium-rg35xxsp.img.gz" "$(ROOT_DIR)/$(SP_DIST_DIR)/images/"'
-	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'rm -rf "$(ROOT_DIR)/$(SP_DIST_DIR)/payload" && cp -a "$(SP_ORBSTACK_DIST_DIR)/payload" "$(ROOT_DIR)/$(SP_DIST_DIR)/payload"'
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc '. "$$HOME/.cargo/env" 2>/dev/null || true; cd "$(ROOT_DIR)" && make sp-linux DIST_DIR="$(SP_ORBSTACK_DIST_DIR)" SP_BUILDROOT_DIR="$(SP_ORBSTACK_DIST_DIR)/buildroot" SP_BUILDROOT_TARBALL="$(SP_ORBSTACK_DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION).tar.xz" SP_BUILDROOT_HOST_STAMP="$(SP_ORBSTACK_DIST_DIR)/buildroot/output/.allium-host-os"'
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'mkdir -p "$(ROOT_DIR)/$(DIST_DIR)/images" && cp -a "$(SP_ORBSTACK_DIST_DIR)/images/allium-rg35xxsp.img.gz" "$(ROOT_DIR)/$(DIST_DIR)/images/"'
+	orb -m "$(ORBSTACK_MACHINE)" sh -lc 'rm -rf "$(ROOT_DIR)/$(DIST_DIR)/payload" && cp -a "$(SP_ORBSTACK_DIST_DIR)/payload" "$(ROOT_DIR)/$(DIST_DIR)/payload"'
 
 .PHONY: sp-check
 sp-check:
@@ -120,7 +124,7 @@ sp-check:
 .PHONY: sp-linux
 sp-linux: sp-check sp-buildroot-host
 	$(MAKE) -C $(SP_BUILDROOT_DIR) BR2_EXTERNAL=$(SP_EXTERNAL_DIR) allium_rg35xxsp_defconfig
-	mkdir -p "$(SP_DIST_DIR)"
+	mkdir -p "$(DIST_DIR)"
 	sed 's#__ALLIUM_BOARD_FIRMWARE_DIR__#$(SP_EXTERNAL_DIR)/board/rg35xxsp/firmware#g' "$(SP_KERNEL_CONFIG)" > "$(SP_GENERATED_KERNEL_CONFIG)"
 	sed -i 's#^BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE=.*#BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(SP_GENERATED_KERNEL_CONFIG)"#' "$(SP_BUILDROOT_DIR)/.config"
 	if grep -q '^BR2_PACKAGE_ALLIUM_PAYLOAD_DIR=' "$(SP_BUILDROOT_DIR)/.config"; then \
@@ -132,8 +136,8 @@ sp-linux: sp-check sp-buildroot-host
 	$(MAKE) sp-buildroot-deps
 	$(MAKE) sp-payload
 	$(MAKE) -C $(SP_BUILDROOT_DIR) BR2_EXTERNAL=$(SP_EXTERNAL_DIR)
-	mkdir -p $(SP_DIST_DIR)/images
-	cp -a $(SP_BUILDROOT_DIR)/output/images/allium-rg35xxsp.img.gz $(SP_DIST_DIR)/images/
+	mkdir -p $(DIST_DIR)/images
+	cp -a $(SP_BUILDROOT_DIR)/output/images/allium-rg35xxsp.img.gz $(DIST_DIR)/images/
 
 .PHONY: sp-buildroot-deps
 sp-buildroot-deps:
@@ -142,7 +146,7 @@ sp-buildroot-deps:
 .PHONY: sp-payload
 sp-payload:
 	ROOT_DIR="$(ROOT_DIR)" \
-	SP_DIST_DIR="$(SP_DIST_DIR)" \
+	DIST_DIR="$(DIST_DIR)" \
 	SP_BUILDROOT_DIR="$(SP_BUILDROOT_DIR)" \
 	SP_EXTERNAL_DIR="$(SP_EXTERNAL_DIR)" \
 	SP_PAYLOAD_DIR="$(SP_PAYLOAD_DIR)" \
@@ -163,14 +167,14 @@ sp-buildroot-host: $(SP_BUILDROOT_DIR)/.stamp-extracted
 	@printf '%s-%s\n' "$$(uname -s)" "$$(uname -m)" > "$(SP_BUILDROOT_HOST_STAMP)"
 
 $(SP_BUILDROOT_TARBALL):
-	mkdir -p $(SP_DIST_DIR)
+	mkdir -p $(DIST_DIR)
 	wget -O $@ $(SP_BUILDROOT_URL)
 
 $(SP_BUILDROOT_DIR)/.stamp-extracted: $(SP_BUILDROOT_TARBALL)
 	rm -rf $(SP_BUILDROOT_DIR)
-	mkdir -p $(SP_DIST_DIR)
-	tar -C $(SP_DIST_DIR) -xf $(SP_BUILDROOT_TARBALL)
-	mv $(SP_DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION) $(SP_BUILDROOT_DIR)
+	mkdir -p $(DIST_DIR)
+	tar -C $(DIST_DIR) -xf $(SP_BUILDROOT_TARBALL)
+	mv $(DIST_DIR)/buildroot-$(SP_BUILDROOT_VERSION) $(SP_BUILDROOT_DIR)
 	touch $@
 
 third-party/my283:
@@ -193,10 +197,10 @@ debug: third-party/my283
 .PHONY: strip-all
 strip-all:
 	docker run --rm -i -v $(ROOT_DIR):/root/workspace $(TOOLCHAIN) \
-		find dist static migrations \
+		find $(DIST_DIR) static migrations \
 			-type f \
 			-not -path "static/.tmp_update/8188fu.ko" \
-			-not -path "dist/.tmp_update/8188fu.ko" \
+			-not -path "$(DIST_DIR)/.tmp_update/8188fu.ko" \
 			-exec sh -c 'file "{}" | grep "not stripped"' \; \
 			-exec /opt/miyoomini-toolchain/usr/bin/arm-linux-gnueabihf-strip -s {} \;
 
@@ -295,7 +299,7 @@ ifndef SDCARD_PATH
 	$(error SDCARD_PATH is not set. Create a local.mk file with SDCARD_PATH=/path/to/sdcard or set it as an environment variable)
 endif
 	@echo "Deploying to $(SDCARD_PATH)..."
-	rsync --progress --modify-window=1 --update --recursive --times --verbose $(DIST_DIR)/.allium $(DIST_DIR)/.tmp_update $(DIST_DIR)/Apps $(DIST_DIR)/RetroArch $(DIST_DIR)/Themes $(SDCARD_PATH)/
+	rsync --progress --modify-window=1 --recursive --times --verbose $(DIST_DIR)/.allium $(DIST_DIR)/.tmp_update $(DIST_DIR)/Apps $(DIST_DIR)/RetroArch $(DIST_DIR)/Themes $(SDCARD_PATH)/
 	@echo "Deployment complete! Remember to eject your SD card properly."
 
 .PHONY: deploy-all

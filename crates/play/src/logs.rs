@@ -1,37 +1,23 @@
 use anyhow::Result;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+use common::constants::ALLIUM_PLAY_LOG;
 
 // On hardware there is no terminal, so stderr must become a file before logging starts.
 pub fn init() -> Result<()> {
     #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
-    init_hardware()?;
+    {
+        use std::fs;
+        // Immediate marker to prove execution
+        let _ = fs::write("/mnt/SDCARD/.allium/logs/play_started.marker", "started");
+        
+        // Attempt log redirection but don't crash if it fails
+        let _ = common::log::init_hardware_log(&*ALLIUM_PLAY_LOG);
+        
+        println!("--- Play starting at {} ---", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    }
 
     SimpleLogger::new().with_level(LevelFilter::Info).init()?;
-
-    Ok(())
-}
-
-#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
-// dup2 redirects simple_logger output without teaching the logger about files.
-fn init_hardware() -> Result<()> {
-    use common::constants::ALLIUM_PLAY_LOG;
-    use std::fs;
-    use std::os::unix::io::AsRawFd;
-
-    if let Some(parent) = ALLIUM_PLAY_LOG.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let log_file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&*ALLIUM_PLAY_LOG)?;
-
-    let fd = log_file.as_raw_fd();
-    unsafe {
-        nix::libc::dup2(fd, nix::libc::STDERR_FILENO);
-    }
 
     Ok(())
 }

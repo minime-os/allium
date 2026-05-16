@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR=${ROOT_DIR:-$(pwd)}
-SP_DIST_DIR=${SP_DIST_DIR:-"${ROOT_DIR}/dist/sp"}
-SP_BUILDROOT_DIR=${SP_BUILDROOT_DIR:-"${SP_DIST_DIR}/buildroot"}
+DIST_DIR=${DIST_DIR:-"${ROOT_DIR}/dist/sp"}
+SP_BUILDROOT_DIR=${SP_BUILDROOT_DIR:-"${DIST_DIR}/buildroot"}
 SP_EXTERNAL_DIR=${SP_EXTERNAL_DIR:-"${ROOT_DIR}/buildroot-external"}
-PAYLOAD_DIR=${SP_PAYLOAD_DIR:-"${SP_DIST_DIR}/payload"}
-CORES_BUILD_DIR=${SP_CORES_BUILD_DIR:-"${SP_DIST_DIR}/cores-build"}
+PAYLOAD_DIR=${SP_PAYLOAD_DIR:-"${DIST_DIR}/payload"}
+CORES_BUILD_DIR=${SP_CORES_BUILD_DIR:-"${DIST_DIR}/cores-build"}
 RETROARCH_DIR=${RETROARCH_DIR:-"${ROOT_DIR}/third-party/RetroArch-patch"}
 TARGET_TRIPLE=aarch64-unknown-linux-gnu
 HOST_DIR="${SP_BUILDROOT_DIR}/output/host"
@@ -72,11 +72,11 @@ build_allium() {
 	PKG_CONFIG_ALLOW_CROSS=1 \
 	PKG_CONFIG_SYSROOT_DIR="${SYSROOT_DIR}" \
 	PKG_CONFIG_PATH="${SYSROOT_DIR}/usr/lib/pkgconfig:${SYSROOT_DIR}/usr/share/pkgconfig" \
-	CARGO_TARGET_DIR="${SP_DIST_DIR}/cargo-target" \
+	CARGO_TARGET_DIR="${DIST_DIR}/cargo-target" \
 	cargo build --release --target "${TARGET_TRIPLE}" --features rg35xxsp \
 		"${cargo_args[@]}"
 	for bin in "${ALLIUM_BINS[@]}"; do
-		install -D -m 0755 "${SP_DIST_DIR}/cargo-target/${TARGET_TRIPLE}/release/${bin}" "${PAYLOAD_DIR}/.allium/bin/${bin}"
+		install -D -m 0755 "${DIST_DIR}/cargo-target/${TARGET_TRIPLE}/release/${bin}" "${PAYLOAD_DIR}/.allium/bin/${bin}"
 	done
 }
 

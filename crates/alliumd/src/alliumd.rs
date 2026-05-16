@@ -147,14 +147,17 @@ async fn spawn_main() -> Result<Child> {
     #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
     return Ok(match GameInfo::load()? {
         Some(mut game_info) => {
-            debug!("found game info, resuming game");
+            info!("found game info, resuming game: {} ({:?})", game_info.name, game_info.path);
             game_info.start_time = Utc::now();
             game_info.save()?;
-            game_info.command().into()
+            let cmd = game_info.command();
+            info!("spawning game command: {:?} {:?}", cmd.get_program(), cmd.get_args());
+            cmd.into()
         }
         None => {
             debug!("no game info found, launching launcher");
             use common::constants::ALLIUM_LAUNCHER;
+            info!("spawning launcher: {:?}", ALLIUM_LAUNCHER.as_path());
             Command::new(ALLIUM_LAUNCHER.as_path())
         }
     }
@@ -322,9 +325,10 @@ impl AlliumD<DefaultPlatform> {
                             self.handle_quit().await?;
                         }
                     }
-                    _ = self.main.wait() => {
+                    status = self.main.wait() => {
                         if !self.is_terminating {
-                            info!("main process terminated, recording play time");
+                            let status = status?;
+                            info!("main process terminated with status: {}, recording play time", status);
                             self.update_play_time()?;
                             GameInfo::delete()?;
                             self.main = spawn_main().await?;
