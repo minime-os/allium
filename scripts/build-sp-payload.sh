@@ -109,6 +109,7 @@ build_retroarch() {
 	local jobs
 	jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 	"${MAKE_CMD}" -C "${RETROARCH_DIR}" assemble
+	patch -d "${RETROARCH_DIR}/build" -p1 < "${SP_EXTERNAL_DIR}/board/rg35xxsp/patches/retroarch/10001_rg35xxsp_root_fallback.patch"
 	rm -rf "${RETROARCH_DIR}/build/obj-unix"
 	configure_retroarch
 	"${MAKE_CMD}" -C "${RETROARCH_DIR}/build" -j"${jobs}"

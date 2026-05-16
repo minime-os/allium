@@ -1,0 +1,17 @@
+diff --git a/frontend/drivers/platform_unix.c b/frontend/drivers/platform_unix.c
+--- a/frontend/drivers/platform_unix.c
++++ b/frontend/drivers/platform_unix.c
+@@ -1780,12 +1780,12 @@ static void frontend_unix_get_env(int *argc,
+    }
+ #else
+    char base_path[PATH_MAX] = {0};
++   const char *root         = getenv("ROOT") ? getenv("ROOT") : "/mnt/SDCARD";
+ #if defined(RARCH_UNIX_CWD_ENV)
+    /* The entire path is zero initialized. */
+    getcwd(base_path, sizeof(base_path));
+ #elif defined(DINGUX)
+    dingux_get_base_path(base_path, sizeof(base_path));
+-   const char *root         = getenv("ROOT"); // Root of the SD Card (e.g. /mnt/SDCARD)
+ #else
+    const char *xdg          = getenv("XDG_CONFIG_HOME");
+    const char *home         = getenv("HOME");
