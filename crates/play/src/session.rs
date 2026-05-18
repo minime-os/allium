@@ -786,6 +786,10 @@ impl LibretroCallbacks for PlaySession {
     fn on_environment(&mut self, cmd: c_uint, data: *mut c_void) -> bool {
         match cmd {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => {
+                if data.is_null() {
+                    warn!("Core requested SET_PIXEL_FORMAT with null data");
+                    return false;
+                }
                 let format = unsafe { *(data as *const retro_pixel_format) };
                 if format == retro_pixel_format_RETRO_PIXEL_FORMAT_RGB565 {
                     self.pixel_format = Some(VideoFrameFormat::Rgb565);
@@ -802,9 +806,29 @@ impl LibretroCallbacks for PlaySession {
             }
             RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.system_dir),
             RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => self.write_env_path(data, &self.save_dir),
-            RETRO_ENVIRONMENT_GET_FASTFORWARDING => self.write_env_bool(data, self.fast_forwarding),
+            RETRO_ENVIRONMENT_GET_FASTFORWARDING => {
+                self.write_env_bool(data, self.fast_forwarding)
+            }
+            RETRO_ENVIRONMENT_GET_CAN_DUPE => {
+                if data.is_null() {
+                    return false;
+                }
+                info!("Core queried CAN_DUPE: returning false");
+                self.write_env_bool(data, false)
+            }
+            RETRO_ENVIRONMENT_SET_MESSAGE => {
+                if data.is_null() {
+                    return false;
+                }
+                info!("Core sent SET_MESSAGE: handled=false (not displayed)");
+                false
+            }
             _ => {
-                debug!("Unsupported environment command: {}", cmd);
+                if data.is_null() {
+                    info!("Unsupported env cmd={} with null data", cmd);
+                } else {
+                    info!("Unsupported env cmd={}", cmd);
+                }
                 false
             }
         }
