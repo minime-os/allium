@@ -34,6 +34,7 @@ pub struct PlaySession {
     config: PlayConfig,
     core: Option<Core>,
     rom_data: Option<Vec<u8>>,
+    rom_path_cstring: Option<CString>,
     active_rom_path: Option<PathBuf>,
     extracted_rom_dir: Option<PathBuf>,
     captured_frame: Option<CapturedFrame>,
@@ -72,6 +73,7 @@ impl PlaySession {
             config,
             core: None,
             rom_data: None,
+            rom_path_cstring: None,
             active_rom_path: None,
             extracted_rom_dir: None,
             captured_frame: None,
@@ -111,8 +113,11 @@ impl PlaySession {
 
     // The order mirrors libretro's lifecycle: core first, content second, frames last.
     async fn execute_session(&mut self) -> Result<()> {
+        info!("execute_session: loading core...");
         self.load_core()?;
+        info!("execute_session: loading game...");
         self.load_game()?;
+        info!("execute_session: entering run loop...");
 
         if self.args.dump_frame.is_some() {
             info!("Running {} warmup frames for dump...", DUMP_WARMUP_FRAMES);
@@ -148,7 +153,10 @@ impl PlaySession {
     }
 
     // Some cores borrow the ROM buffer after retro_load_game, so the Vec lives in the session.
+    // The CString also needs session lifetime: cores often cache the path pointer internally,
+    // so dropping it right after load_game is UB that shows up as a SIGSEGV on the next call.
     fn load_game(&mut self) -> Result<()> {
+        info!("load_game: ensuring config/save dirs exist");
         fs::create_dir_all(&self.paths.config_dir)?;
         fs::create_dir_all(&self.paths.save_dir)?;
 
@@ -158,21 +166,25 @@ impl PlaySession {
             .ok_or_else(|| anyhow!("Core not loaded"))?
             .get_system_info();
 
+        info!("load_game: resolving ROM path...");
         let rom_path = self.resolve_rom_path(&sys_info)?;
         let path_str = rom_path
             .to_str()
             .ok_or_else(|| anyhow!("Invalid ROM path"))?;
         let c_path = CString::new(path_str)?;
+        self.rom_path_cstring = Some(c_path);
+        // Safe because c_path now lives in self for the whole session.
+        let path_ptr = self.rom_path_cstring.as_ref().unwrap().as_ptr();
 
         let mut game_info = retro_game_info {
-            path: c_path.as_ptr(),
+            path: path_ptr,
             data: ptr::null(),
             size: 0,
             meta: ptr::null(),
         };
 
         if !sys_info.need_fullpath {
-            info!("Core needs ROM data in memory, loading...");
+            info!("load_game: reading ROM data into memory...");
             let data = fs::read(&rom_path)?;
             game_info.data = data.as_ptr() as *const c_void;
             game_info.size = data.len();
@@ -183,14 +195,21 @@ impl PlaySession {
             .core
             .as_ref()
             .ok_or_else(|| anyhow!("Core not loaded"))?;
+        info!("load_game: calling core.load_game...");
         core.load_game(&game_info)?;
+        info!("load_game: core.load_game returned OK");
+
+        info!("load_game: calling load_sram...");
         self.load_sram()?;
+        info!("load_game: load_sram returned OK");
+
         if self.config.autoload
             && let Err(err) = self.load_state_slot(-1)
         {
             debug!("Autosave autoload skipped: {}", err);
         }
 
+        info!("load_game: calling core.get_system_av_info...");
         let av_info = core.get_system_av_info();
         info!(
             "AV Info: {}x{} @ {} fps, sample_rate: {}",
@@ -201,6 +220,7 @@ impl PlaySession {
         );
         self.av_info = Some(av_info);
 
+        info!("load_game: complete");
         Ok(())
     }
 
