@@ -1,4 +1,3 @@
-use log::info;
 use std::os::raw::{c_uint, c_void};
 
 // libretro calls plain C function pointers, not Rust methods.
@@ -36,10 +35,7 @@ pub unsafe fn clear_handler() {
 
 // These functions match libretro's ABI exactly, then immediately return to Rust code.
 pub unsafe extern "C" fn environment_callback(cmd: c_uint, data: *mut c_void) -> bool {
-    info!("C: environment_callback cmd={}", cmd);
-    let result = unsafe { with_handler(|handler| handler.on_environment(cmd, data)).unwrap_or(false) };
-    info!("C: environment_callback done");
-    result
+    unsafe { with_handler(|handler| handler.on_environment(cmd, data)).unwrap_or(false) }
 }
 
 pub unsafe extern "C" fn video_refresh_callback(
@@ -48,7 +44,6 @@ pub unsafe extern "C" fn video_refresh_callback(
     height: c_uint,
     pitch: usize,
 ) {
-    info!("C: video_refresh_callback");
     unsafe { with_handler(|handler| handler.on_video_refresh(data, width, height, pitch)) };
 }
 

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::path::Path;
 
+#[allow(unused_variables)]
 pub fn init_hardware_log(log_path: &Path) -> Result<()> {
     #[cfg(feature = "miyoo")]
     {
@@ -13,7 +14,8 @@ pub fn init_hardware_log(log_path: &Path) -> Result<()> {
 
         match fs::OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
+            .truncate(true)
             .open(log_path)
         {
             Ok(log_file) => {

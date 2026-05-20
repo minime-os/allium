@@ -356,7 +356,9 @@ impl PlaySession {
             #[cfg(feature = "simulator")]
             self.apply_simulator_input(&mut simulator_video);
             #[cfg(feature = "miyoo")]
-            self.present_miyoo_frame(&mut miyoo_video)?;
+            if !self.paused {
+                self.present_miyoo_frame(&mut miyoo_video)?;
+            }
             next_frame_at += frame_interval;
 
             if self.fast_forwarding {
@@ -813,8 +815,8 @@ impl LibretroCallbacks for PlaySession {
                 if data.is_null() {
                     return false;
                 }
-                info!("Core queried CAN_DUPE: returning false");
-                self.write_env_bool(data, false)
+                info!("Core queried CAN_DUPE: returning true");
+                self.write_env_bool(data, true)
             }
             RETRO_ENVIRONMENT_SET_MESSAGE => {
                 if data.is_null() {
@@ -825,9 +827,9 @@ impl LibretroCallbacks for PlaySession {
             }
             _ => {
                 if data.is_null() {
-                    info!("Unsupported env cmd={} with null data", cmd);
+                    debug!("Unsupported env cmd={} with null data", cmd);
                 } else {
-                    info!("Unsupported env cmd={}", cmd);
+                    debug!("Unsupported env cmd={}", cmd);
                 }
                 false
             }
