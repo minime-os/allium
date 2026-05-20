@@ -14,6 +14,7 @@ const BGRA8888_BITS_PER_PIXEL: u32 = 32;
 
 pub struct MiyooVideo {
     fb: Framebuffer,
+    back_buffer: Vec<u8>,
     pitch: usize,
     height: u32,
     format: MiyooFramebufferFormat,
@@ -62,6 +63,7 @@ impl VideoBackend for MiyooVideo {
         );
 
         Ok(Self {
+            back_buffer: vec![0u8; fb.frame.len()],
             fb,
             pitch,
             height,
@@ -78,7 +80,7 @@ impl VideoBackend for MiyooVideo {
         match (self.format, pixel_format) {
             (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Rgb565) => scale_rgb565_to_rgb565(
                 frame,
-                &mut self.fb.frame,
+                &mut self.back_buffer,
                 self.pitch,
                 self.height,
                 self.rect,
@@ -91,7 +93,7 @@ impl VideoBackend for MiyooVideo {
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Rgb565) => {
                 scale_rgb565_to_bgra8888(
                     frame,
-                    &mut self.fb.frame,
+                    &mut self.back_buffer,
                     self.pitch,
                     self.height,
                     self.rect,
@@ -100,13 +102,14 @@ impl VideoBackend for MiyooVideo {
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Xrgb8888) => {
                 scale_xrgb8888_to_bgra8888(
                     frame,
-                    &mut self.fb.frame,
+                    &mut self.back_buffer,
                     self.pitch,
                     self.height,
                     self.rect,
                 )?
             }
         };
+        self.fb.frame.copy_from_slice(&self.back_buffer);
         Ok(VideoPresentResult::default())
     }
 

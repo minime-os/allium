@@ -25,6 +25,7 @@ pub fn scale_rgb565_to_xrgb8888(
         output_height,
         rect,
         false,
+        false,
         |source_start, output_index| {
             let [r, g, b] = rgb565_to_rgb(&frame.data[source_start..source_start + 2]);
             output[output_index] = pack_xrgb8888(r, g, b);
@@ -52,6 +53,7 @@ pub fn scale_xrgb8888_to_xrgb8888(
         output_width,
         output_height,
         rect,
+        false,
         false,
         |source_start, output_index| {
             let bytes = &frame.data[source_start..source_start + XRGB8888_BYTES_PER_PIXEL];
@@ -87,6 +89,7 @@ pub fn scale_rgb565_to_rgb565(
         output_height,
         rect,
         true,
+        true,
         |source_start, output_index| {
             let output_start = output_index * RGB565_BYTES_PER_PIXEL;
             output[output_start..output_start + RGB565_BYTES_PER_PIXEL]
@@ -121,6 +124,7 @@ pub fn scale_rgb565_to_bgra8888(
         output_pitch as u32 / BGRA8888_BYTES_PER_PIXEL as u32,
         output_height,
         rect,
+        true,
         true,
         |source_start, output_index| {
             let output_start = output_index * BGRA8888_BYTES_PER_PIXEL;
@@ -160,6 +164,7 @@ pub fn scale_xrgb8888_to_bgra8888(
         output_height,
         rect,
         true,
+        true,
         |source_start, output_index| {
             let output_start = output_index * BGRA8888_BYTES_PER_PIXEL;
             output[output_start..output_start + BGRA8888_BYTES_PER_PIXEL].copy_from_slice(
@@ -178,6 +183,7 @@ fn for_each_scaled_pixel<F>(
     output_width: u32,
     output_height: u32,
     rect: ScaleRect,
+    flip_x: bool,
     flip_y: bool,
     mut write: F,
 ) where
@@ -188,12 +194,17 @@ fn for_each_scaled_pixel<F>(
         for dst_x in 0..rect.width {
             let src_x = dst_x as u64 * frame.width as u64 / rect.width as u64;
             let source_start = src_y as usize * frame.pitch + src_x as usize * bytes_per_pixel;
-            let output_index = if flip_y {
-                (output_height - 1 - (rect.y + dst_y)) as usize * output_width as usize
-                    + (rect.x + dst_x) as usize
+            let output_x = if flip_x {
+                rect.x + rect.width - 1 - dst_x
             } else {
-                (rect.y + dst_y) as usize * output_width as usize + (rect.x + dst_x) as usize
+                rect.x + dst_x
             };
+            let output_y = if flip_y {
+                output_height - 1 - (rect.y + dst_y)
+            } else {
+                rect.y + dst_y
+            };
+            let output_index = output_y as usize * output_width as usize + output_x as usize;
             write(source_start, output_index);
         }
     }

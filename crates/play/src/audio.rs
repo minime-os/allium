@@ -503,11 +503,11 @@ fn run_alsa_thread(
     }
 
     let api = unsafe { AlsaApi::load()? };
-    let name = CString::new("default")?;
+    let name = CString::new("hw:0,0")?;
     let mut pcm = std::ptr::null_mut();
     api.check(
         unsafe { (api.snd_pcm_open)(&mut pcm, name.as_ptr(), SND_PCM_STREAM_PLAYBACK, 0) },
-        "Failed to open ALSA PCM default",
+        "Failed to open ALSA PCM hw:0,0",
     )?;
     let pcm = PcmHandle { api: &api, pcm };
 
@@ -596,7 +596,7 @@ fn run_alsa_thread(
     )?;
 
     info!(
-        "Starting Miyoo ALSA audio: sample_rate={}, period_frames={}, buffer_frames={}",
+        "Starting Miyoo ALSA audio on hw:0,0: sample_rate={}, period_frames={}, buffer_frames={}",
         sample_rate, period_frames, buffer_frames
     );
 
