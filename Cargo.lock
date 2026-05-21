@@ -2571,6 +2571,7 @@ dependencies = [
  "clap",
  "common",
  "cpal",
+ "ffi",
  "framebuffer",
  "libloading",
  "log",

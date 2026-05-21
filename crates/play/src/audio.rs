@@ -338,13 +338,13 @@ impl MiyooAudio {
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let thread_running = running.clone();
         let thread = std::thread::Builder::new()
-            .name("play-alsa-audio".to_string())
+            .name("play-miyoo-audio".to_string())
             .spawn(move || {
-                if let Err(err) = run_alsa_thread(sample_rate, consumer, thread_running) {
-                    warn!("ALSA audio thread stopped: {:#}", err);
+                if let Err(err) = run_miyoo_thread(sample_rate, consumer, thread_running) {
+                    warn!("Miyoo MI_AO audio thread stopped: {:#}", err);
                 }
             })
-            .context("Failed to spawn ALSA audio thread")?;
+            .context("Failed to spawn Miyoo MI_AO audio thread")?;
 
         Ok(Self {
             running,
@@ -365,257 +365,116 @@ impl Drop for MiyooAudio {
 }
 
 #[cfg(feature = "miyoo")]
-fn run_alsa_thread(
+fn run_miyoo_thread(
     sample_rate: u32,
     mut consumer: AudioConsumer,
     running: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
-    use std::ffi::CString;
-    use std::os::raw::{c_char, c_int, c_long, c_uint, c_ulong, c_void};
+    use ::ffi::*;
     use std::sync::atomic::Ordering;
 
-    const PERIOD_FRAMES: usize = 1024;
-    const BUFFER_FRAMES: c_ulong = 4096;
-    const SND_PCM_STREAM_PLAYBACK: c_int = 0;
-    const SND_PCM_ACCESS_RW_INTERLEAVED: c_int = 3;
-    const SND_PCM_FORMAT_S16_LE: c_int = 2;
-
-    #[repr(C)]
-    struct SndPcm {
-        _private: [u8; 0],
-    }
-
-    #[repr(C)]
-    struct SndPcmHwParams {
-        _private: [u8; 0],
-    }
-
-    struct AlsaApi {
-        _lib: libloading::Library,
-        snd_pcm_open: unsafe extern "C" fn(*mut *mut SndPcm, *const c_char, c_int, c_int) -> c_int,
-        snd_pcm_close: unsafe extern "C" fn(*mut SndPcm) -> c_int,
-        snd_pcm_prepare: unsafe extern "C" fn(*mut SndPcm) -> c_int,
-        snd_pcm_recover: unsafe extern "C" fn(*mut SndPcm, c_int, c_int) -> c_int,
-        snd_pcm_writei: unsafe extern "C" fn(*mut SndPcm, *const c_void, c_ulong) -> c_long,
-        snd_pcm_hw_params_malloc: unsafe extern "C" fn(*mut *mut SndPcmHwParams) -> c_int,
-        snd_pcm_hw_params_free: unsafe extern "C" fn(*mut SndPcmHwParams),
-        snd_pcm_hw_params_any: unsafe extern "C" fn(*mut SndPcm, *mut SndPcmHwParams) -> c_int,
-        snd_pcm_hw_params: unsafe extern "C" fn(*mut SndPcm, *mut SndPcmHwParams) -> c_int,
-        snd_pcm_hw_params_set_access:
-            unsafe extern "C" fn(*mut SndPcm, *mut SndPcmHwParams, c_int) -> c_int,
-        snd_pcm_hw_params_set_format:
-            unsafe extern "C" fn(*mut SndPcm, *mut SndPcmHwParams, c_int) -> c_int,
-        snd_pcm_hw_params_set_channels:
-            unsafe extern "C" fn(*mut SndPcm, *mut SndPcmHwParams, c_uint) -> c_int,
-        snd_pcm_hw_params_set_rate_resample:
-            unsafe extern "C" fn(*mut SndPcm, *mut SndPcmHwParams, c_uint) -> c_int,
-        snd_pcm_hw_params_set_rate_near: unsafe extern "C" fn(
-            *mut SndPcm,
-            *mut SndPcmHwParams,
-            *mut c_uint,
-            *mut c_int,
-        ) -> c_int,
-        snd_pcm_hw_params_set_buffer_size_near:
-            unsafe extern "C" fn(*mut SndPcm, *mut SndPcmHwParams, *mut c_ulong) -> c_int,
-        snd_pcm_hw_params_set_period_size_near: unsafe extern "C" fn(
-            *mut SndPcm,
-            *mut SndPcmHwParams,
-            *mut c_ulong,
-            *mut c_int,
-        ) -> c_int,
-        snd_strerror: unsafe extern "C" fn(c_int) -> *const c_char,
-    }
-
-    unsafe impl Send for AlsaApi {}
-
-    impl AlsaApi {
-        unsafe fn load() -> Result<Self> {
-            let lib = unsafe { libloading::Library::new("libasound.so.2") }
-                .context("Failed to load libasound.so.2")?;
-            unsafe {
-                Ok(Self {
-                    snd_pcm_open: *lib.get(b"snd_pcm_open")?,
-                    snd_pcm_close: *lib.get(b"snd_pcm_close")?,
-                    snd_pcm_prepare: *lib.get(b"snd_pcm_prepare")?,
-                    snd_pcm_recover: *lib.get(b"snd_pcm_recover")?,
-                    snd_pcm_writei: *lib.get(b"snd_pcm_writei")?,
-                    snd_pcm_hw_params_malloc: *lib.get(b"snd_pcm_hw_params_malloc")?,
-                    snd_pcm_hw_params_free: *lib.get(b"snd_pcm_hw_params_free")?,
-                    snd_pcm_hw_params_any: *lib.get(b"snd_pcm_hw_params_any")?,
-                    snd_pcm_hw_params: *lib.get(b"snd_pcm_hw_params")?,
-                    snd_pcm_hw_params_set_access: *lib.get(b"snd_pcm_hw_params_set_access")?,
-                    snd_pcm_hw_params_set_format: *lib.get(b"snd_pcm_hw_params_set_format")?,
-                    snd_pcm_hw_params_set_channels: *lib.get(b"snd_pcm_hw_params_set_channels")?,
-                    snd_pcm_hw_params_set_rate_resample: *lib
-                        .get(b"snd_pcm_hw_params_set_rate_resample")?,
-                    snd_pcm_hw_params_set_rate_near: *lib
-                        .get(b"snd_pcm_hw_params_set_rate_near")?,
-                    snd_pcm_hw_params_set_buffer_size_near: *lib
-                        .get(b"snd_pcm_hw_params_set_buffer_size_near")?,
-                    snd_pcm_hw_params_set_period_size_near: *lib
-                        .get(b"snd_pcm_hw_params_set_period_size_near")?,
-                    snd_strerror: *lib.get(b"snd_strerror")?,
-                    _lib: lib,
-                })
-            }
+    let mi_rate = {
+        match sample_rate {
+            r if r <= 8500 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_8000,
+            r if r <= 11500 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_11025,
+            r if r <= 14000 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_12000,
+            r if r <= 19000 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_16000,
+            r if r <= 23000 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_22050,
+            r if r <= 28000 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_24000,
+            r if r <= 38000 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_32000,
+            r if r <= 46000 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_44100,
+            r if r <= 72000 => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_48000,
+            _ => MI_AUDIO_SampleRate_e_E_MI_AUDIO_SAMPLE_RATE_96000,
         }
+    };
+    let mi_rate_val: u32 = mi_rate as u32;
 
-        fn check(&self, code: c_int, action: &str) -> Result<()> {
-            if code < 0 {
-                return Err(anyhow!("{}: {}", action, self.error(code)));
-            }
-            Ok(())
-        }
-
-        fn error(&self, code: c_int) -> String {
-            unsafe {
-                std::ffi::CStr::from_ptr((self.snd_strerror)(code))
-                    .to_string_lossy()
-                    .into_owned()
-            }
-        }
-    }
-
-    struct PcmHandle<'a> {
-        api: &'a AlsaApi,
-        pcm: *mut SndPcm,
-    }
-
-    impl Drop for PcmHandle<'_> {
-        fn drop(&mut self) {
-            unsafe {
-                (self.api.snd_pcm_close)(self.pcm);
-            }
-        }
-    }
-
-    struct HwParamsHandle<'a> {
-        api: &'a AlsaApi,
-        params: *mut SndPcmHwParams,
-    }
-
-    impl Drop for HwParamsHandle<'_> {
-        fn drop(&mut self) {
-            unsafe {
-                (self.api.snd_pcm_hw_params_free)(self.params);
-            }
-        }
-    }
-
-    let api = unsafe { AlsaApi::load()? };
-    let name = CString::new("plughw:0,0")?;
-    let mut pcm = std::ptr::null_mut();
-    api.check(
-        unsafe { (api.snd_pcm_open)(&mut pcm, name.as_ptr(), SND_PCM_STREAM_PLAYBACK, 0) },
-        "Failed to open ALSA PCM plughw:0,0",
-    )?;
-    let pcm = PcmHandle { api: &api, pcm };
-
-    let mut params = std::ptr::null_mut();
-    api.check(
-        unsafe { (api.snd_pcm_hw_params_malloc)(&mut params) },
-        "Failed to allocate ALSA hw params",
-    )?;
-    let params = HwParamsHandle { api: &api, params };
-
-    api.check(
-        unsafe { (api.snd_pcm_hw_params_any)(pcm.pcm, params.params) },
-        "Failed to initialize ALSA hw params",
-    )?;
-    api.check(
-        unsafe {
-            (api.snd_pcm_hw_params_set_access)(
-                pcm.pcm,
-                params.params,
-                SND_PCM_ACCESS_RW_INTERLEAVED,
-            )
-        },
-        "Failed to set ALSA access mode",
-    )?;
-    api.check(
-        unsafe {
-            (api.snd_pcm_hw_params_set_format)(pcm.pcm, params.params, SND_PCM_FORMAT_S16_LE)
-        },
-        "Failed to set ALSA sample format",
-    )?;
-    api.check(
-        unsafe { (api.snd_pcm_hw_params_set_channels)(pcm.pcm, params.params, CHANNELS as c_uint) },
-        "Failed to set ALSA channels",
-    )?;
-    api.check(
-        unsafe { (api.snd_pcm_hw_params_set_rate_resample)(pcm.pcm, params.params, 0) },
-        "Failed to disable ALSA resampling",
-    )?;
-    let mut actual_rate = sample_rate as c_uint;
-    let mut dir = 0;
-    api.check(
-        unsafe {
-            (api.snd_pcm_hw_params_set_rate_near)(
-                pcm.pcm,
-                params.params,
-                &mut actual_rate,
-                &mut dir,
-            )
-        },
-        "Failed to set ALSA sample rate",
-    )?;
-    if actual_rate != sample_rate {
+    if mi_rate_val != sample_rate {
         warn!(
-            "ALSA selected {} Hz for core sample rate {} Hz (resampling will be used)",
-            actual_rate, sample_rate
+            "MI_AO rounding core sample rate {} Hz to {} Hz",
+            sample_rate, mi_rate_val
         );
     }
-    let mut buffer_frames = BUFFER_FRAMES;
-    api.check(
-        unsafe {
-            (api.snd_pcm_hw_params_set_buffer_size_near)(pcm.pcm, params.params, &mut buffer_frames)
+
+    const AO_DEV: MI_AUDIO_DEV = 0;
+    const AO_CHN: MI_AO_CHN = 0;
+    const PERIOD_FRAMES: usize = 1024;
+
+    let mut attr = MI_AUDIO_Attr_s {
+        eSamplerate: mi_rate,
+        eBitwidth: MI_AUDIO_BitWidth_e_E_MI_AUDIO_BIT_WIDTH_16,
+        eWorkmode: MI_AUDIO_Mode_e_E_MI_AUDIO_MODE_I2S_MASTER,
+        eSoundmode: MI_AUDIO_SoundMode_e_E_MI_AUDIO_SOUND_MODE_STEREO,
+        u32FrmNum: 6,
+        u32PtNumPerFrm: PERIOD_FRAMES as MI_U32,
+        u32CodecChnCnt: CHANNELS as MI_U32,
+        u32ChnCnt: CHANNELS as MI_U32,
+        WorkModeSetting: MI_AUDIO_Attr_s__bindgen_ty_1 {
+            stI2sConfig: MI_AUDIO_I2sConfig_t {
+                eFmt: MI_AUDIO_I2sFmt_e_E_MI_AUDIO_I2S_FMT_I2S_MSB,
+                eMclk: MI_AUDIO_I2sMclk_e_E_MI_AUDIO_I2S_MCLK_0,
+                bSyncClock: 0,
+            },
         },
-        "Failed to set ALSA buffer size",
-    )?;
-    let mut period_frames = PERIOD_FRAMES as c_ulong;
-    api.check(
-        unsafe {
-            (api.snd_pcm_hw_params_set_period_size_near)(
-                pcm.pcm,
-                params.params,
-                &mut period_frames,
-                &mut dir,
-            )
-        },
-        "Failed to set ALSA period size",
-    )?;
-    api.check(
-        unsafe { (api.snd_pcm_hw_params)(pcm.pcm, params.params) },
-        "Failed to apply ALSA hw params",
-    )?;
-    drop(params);
-    api.check(
-        unsafe { (api.snd_pcm_prepare)(pcm.pcm) },
-        "Failed to prepare ALSA PCM",
-    )?;
+    };
+
+    unsafe {
+        let ret = MI_AO_SetPubAttr(AO_DEV, &mut attr);
+        if ret != 0 {
+            warn!("MI_AO_SetPubAttr returned {}", ret);
+        }
+
+        let ret = MI_AO_Enable(AO_DEV);
+        if ret != 0 {
+            warn!("MI_AO_Enable returned {}", ret);
+        }
+
+        let ret = MI_AO_EnableChn(AO_DEV, AO_CHN);
+        if ret != 0 {
+            warn!("MI_AO_EnableChn returned {}", ret);
+        }
+    }
 
     info!(
-        "Starting Miyoo ALSA audio on plughw:0,0: sample_rate={}, period_frames={}, buffer_frames={}",
-        sample_rate, period_frames, buffer_frames
+        "Starting Miyoo MI_AO audio: dev={}, chn={}, sample_rate={} Hz, period_frames={}",
+        AO_DEV, AO_CHN, mi_rate_val, PERIOD_FRAMES
     );
 
-    let mut buffer = vec![0; PERIOD_FRAMES * CHANNELS];
+    let mut buffer = vec![0i16; PERIOD_FRAMES * CHANNELS];
+    let mut seq: MI_U32 = 0;
+
     while running.load(Ordering::Relaxed) {
-        consumer.fill_i16(&mut buffer);
-        let mut offset_frames = 0;
-        while offset_frames < PERIOD_FRAMES {
-            let ptr = unsafe { buffer.as_ptr().add(offset_frames * CHANNELS) as *const c_void };
-            let remaining = (PERIOD_FRAMES - offset_frames) as c_ulong;
-            let written = unsafe { (api.snd_pcm_writei)(pcm.pcm, ptr, remaining) };
-            if written < 0 {
-                api.check(
-                    unsafe { (api.snd_pcm_recover)(pcm.pcm, written as c_int, 1) },
-                    "Failed to recover ALSA write error",
-                )?;
-                break;
-            }
-            offset_frames += written as usize;
+        let stats = consumer.fill_i16(&mut buffer);
+        if stats.underrun_frames > 0 {
+            // continue; MI_AO will play silence for gaps
         }
+
+        let mut frame = MI_AUDIO_Frame_s {
+            eBitwidth: MI_AUDIO_BitWidth_e_E_MI_AUDIO_BIT_WIDTH_16,
+            eSoundmode: MI_AUDIO_SoundMode_e_E_MI_AUDIO_SOUND_MODE_STEREO,
+            apVirAddr: [std::ptr::null_mut(); 16],
+            u64TimeStamp: 0,
+            u32Seq: seq,
+            u32Len: (PERIOD_FRAMES * CHANNELS * std::mem::size_of::<i16>()) as MI_U32,
+            au32PoolId: [0; 2],
+            apSrcPcmVirAddr: [std::ptr::null_mut(); 16],
+            u32SrcPcmLen: 0,
+        };
+        seq = seq.wrapping_add(1);
+
+        frame.apVirAddr[0] = buffer.as_mut_ptr() as *mut std::os::raw::c_void;
+
+        unsafe {
+            let ret = MI_AO_SendFrame(AO_DEV, AO_CHN, &mut frame, -1);
+            if ret != 0 {
+                warn!("MI_AO_SendFrame returned {}", ret);
+            }
+        }
+    }
+
+    unsafe {
+        let _ = MI_AO_DisableChn(AO_DEV, AO_CHN);
+        let _ = MI_AO_Disable(AO_DEV);
     }
 
     Ok(())

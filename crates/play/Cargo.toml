@@ -5,7 +5,7 @@ edition = "2024"
 
 [features]
 simulator = ["common/simulator", "cpal", "softbuffer", "winit"]
-miyoo = ["common/miyoo", "framebuffer"]
+miyoo = ["common/miyoo", "framebuffer", "ffi"]
 
 [dependencies]
 common = { path = "../common" }
@@ -25,3 +25,4 @@ cpal = { version = "0.15.3", optional = true }
 framebuffer = { workspace = true, optional = true }
 softbuffer = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
+ffi = { version = "0.1.0", path = "../ffi", optional = true }
