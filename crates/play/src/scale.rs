@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
+use clap::ValueEnum;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ScaleMode {
     Native,
     Aspect,
@@ -8,15 +9,6 @@ pub enum ScaleMode {
 }
 
 impl ScaleMode {
-    pub fn parse(raw: &str) -> Result<Self> {
-        match raw {
-            "native" => Ok(Self::Native),
-            "aspect" => Ok(Self::Aspect),
-            "fullscreen" => Ok(Self::Fullscreen),
-            _ => Err(anyhow!("--scale must be native, aspect, or fullscreen")),
-        }
-    }
-
     pub fn next(self) -> Self {
         match self {
             Self::Native => Self::Aspect,

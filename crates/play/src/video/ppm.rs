@@ -5,25 +5,20 @@ use super::frame::{
 };
 
 pub fn encode_rgb565(frame: &CapturedFrame) -> Result<Vec<u8>> {
-    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
-
-    let mut ppm_data = Vec::with_capacity(ppm_len(frame.width, frame.height));
-    ppm_data.extend_from_slice(format!("P6\n{} {}\n255\n", frame.width, frame.height).as_bytes());
-
-    for y in 0..frame.height as usize {
-        let row_start = y * frame.pitch;
-        for x in 0..frame.width as usize {
-            let pixel_start = row_start + x * RGB565_BYTES_PER_PIXEL;
-            let [r, g, b] = rgb565_to_rgb(&frame.data[pixel_start..pixel_start + 2]);
-            ppm_data.extend_from_slice(&[r, g, b]);
-        }
-    }
-
-    Ok(ppm_data)
+    encode_ppm(frame, RGB565_BYTES_PER_PIXEL, |bytes| rgb565_to_rgb(bytes))
 }
 
 pub fn encode_xrgb8888(frame: &CapturedFrame) -> Result<Vec<u8>> {
-    validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
+    encode_ppm(frame, XRGB8888_BYTES_PER_PIXEL, |bytes| {
+        [bytes[2], bytes[1], bytes[0]]
+    })
+}
+
+fn encode_ppm<F>(frame: &CapturedFrame, bytes_per_pixel: usize, extract_rgb: F) -> Result<Vec<u8>>
+where
+    F: Fn(&[u8]) -> [u8; 3],
+{
+    validate_frame(frame, bytes_per_pixel)?;
 
     let mut ppm_data = Vec::with_capacity(ppm_len(frame.width, frame.height));
     ppm_data.extend_from_slice(format!("P6\n{} {}\n255\n", frame.width, frame.height).as_bytes());
@@ -31,9 +26,8 @@ pub fn encode_xrgb8888(frame: &CapturedFrame) -> Result<Vec<u8>> {
     for y in 0..frame.height as usize {
         let row_start = y * frame.pitch;
         for x in 0..frame.width as usize {
-            let pixel_start = row_start + x * XRGB8888_BYTES_PER_PIXEL;
-            let bytes = &frame.data[pixel_start..pixel_start + XRGB8888_BYTES_PER_PIXEL];
-            ppm_data.extend_from_slice(&[bytes[2], bytes[1], bytes[0]]);
+            let pixel_start = row_start + x * bytes_per_pixel;
+            ppm_data.extend_from_slice(&extract_rgb(&frame.data[pixel_start..]));
         }
     }
 

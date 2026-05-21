@@ -28,6 +28,7 @@ impl CapturedFrame {
 
 pub(super) const RGB565_BYTES_PER_PIXEL: usize = 2;
 pub(super) const XRGB8888_BYTES_PER_PIXEL: usize = 4;
+#[cfg(feature = "miyoo")]
 pub(super) const BGRA8888_BYTES_PER_PIXEL: usize = 4;
 
 pub(super) fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {

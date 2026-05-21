@@ -28,14 +28,14 @@ use crate::display::settings::DisplaySettings;
 use crate::geom::Rect;
 use crate::platform::{Key, KeyEvent, Platform};
 
-static SCREEN_WIDTH: LazyLock<u32> = LazyLock::new(|| {
+pub static SCREEN_WIDTH: LazyLock<u32> = LazyLock::new(|| {
     std::env::var("WIDTH")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(752)
 });
 
-static SCREEN_HEIGHT: LazyLock<u32> = LazyLock::new(|| {
+pub static SCREEN_HEIGHT: LazyLock<u32> = LazyLock::new(|| {
     std::env::var("HEIGHT")
         .ok()
         .and_then(|s| s.parse().ok())

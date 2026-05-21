@@ -622,6 +622,27 @@ fn run_alsa_thread(
     Ok(())
 }
 
+#[allow(dead_code)]
+pub enum AudioDriver {
+    #[cfg(feature = "simulator")]
+    Simulator(SimulatorAudio),
+    #[cfg(feature = "miyoo")]
+    Miyoo(MiyooAudio),
+}
+
+impl AudioDriver {
+    pub fn new(sample_rate: u32, consumer: AudioConsumer) -> Result<Self> {
+        #[cfg(feature = "simulator")]
+        {
+            Ok(Self::Simulator(SimulatorAudio::new(sample_rate, consumer)?))
+        }
+        #[cfg(feature = "miyoo")]
+        {
+            Ok(Self::Miyoo(MiyooAudio::new(sample_rate, consumer)?))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

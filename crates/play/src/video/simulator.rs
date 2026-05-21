@@ -4,7 +4,7 @@ use crate::video::convert::{scale_rgb565_to_xrgb8888, scale_xrgb8888_to_xrgb8888
 use crate::video::frame::{CapturedFrame, VideoFrameFormat};
 use crate::video::{VideoBackend, VideoPresentResult};
 use anyhow::{Context, Result, anyhow};
-use common::platform::{Key, KeyEvent};
+use common::platform::{Key, KeyEvent, simulator::SCREEN_HEIGHT, simulator::SCREEN_WIDTH};
 use log::info;
 use softbuffer::Surface;
 use std::num::NonZeroU32;
@@ -45,8 +45,8 @@ impl VideoBackend for SimulatorVideo {
         aspect_ratio: f32,
         scale: ScaleMode,
     ) -> Result<Self> {
-        let output_width = simulator_output_width();
-        let output_height = simulator_output_height();
+        let output_width = *SCREEN_WIDTH;
+        let output_height = *SCREEN_HEIGHT;
         let width =
             NonZeroU32::new(output_width).context("Simulator video width must be non-zero")?;
         let height =
@@ -178,20 +178,6 @@ impl SimulatorVideo {
     }
 }
 
-fn simulator_output_width() -> u32 {
-    std::env::var("WIDTH")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(752)
-}
-
-fn simulator_output_height() -> u32 {
-    std::env::var("HEIGHT")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(560)
-}
-
 impl ApplicationHandler for SimulatorVideoApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -270,19 +256,20 @@ impl ApplicationHandler for SimulatorVideoApp {
 }
 
 fn control_event_for_keycode(keycode: KeyCode) -> Option<ControlEvent> {
+    use KeyCode::*;
     match keycode {
-        KeyCode::F5 => Some(ControlEvent::SaveState),
-        KeyCode::F8 => Some(ControlEvent::LoadState),
-        KeyCode::Digit0 => Some(ControlEvent::SelectStateSlot(0)),
-        KeyCode::Digit1 => Some(ControlEvent::SelectStateSlot(1)),
-        KeyCode::Digit2 => Some(ControlEvent::SelectStateSlot(2)),
-        KeyCode::Digit3 => Some(ControlEvent::SelectStateSlot(3)),
-        KeyCode::Digit4 => Some(ControlEvent::SelectStateSlot(4)),
-        KeyCode::Digit5 => Some(ControlEvent::SelectStateSlot(5)),
-        KeyCode::Digit6 => Some(ControlEvent::SelectStateSlot(6)),
-        KeyCode::Digit7 => Some(ControlEvent::SelectStateSlot(7)),
-        KeyCode::Digit8 => Some(ControlEvent::SelectStateSlot(8)),
-        KeyCode::Digit9 => Some(ControlEvent::SelectStateSlot(9)),
+        F5 => Some(ControlEvent::SaveState),
+        F8 => Some(ControlEvent::LoadState),
+        Digit0 => Some(ControlEvent::SelectStateSlot(0)),
+        Digit1 => Some(ControlEvent::SelectStateSlot(1)),
+        Digit2 => Some(ControlEvent::SelectStateSlot(2)),
+        Digit3 => Some(ControlEvent::SelectStateSlot(3)),
+        Digit4 => Some(ControlEvent::SelectStateSlot(4)),
+        Digit5 => Some(ControlEvent::SelectStateSlot(5)),
+        Digit6 => Some(ControlEvent::SelectStateSlot(6)),
+        Digit7 => Some(ControlEvent::SelectStateSlot(7)),
+        Digit8 => Some(ControlEvent::SelectStateSlot(8)),
+        Digit9 => Some(ControlEvent::SelectStateSlot(9)),
         _ => None,
     }
 }

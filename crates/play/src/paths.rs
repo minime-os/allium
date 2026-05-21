@@ -32,7 +32,7 @@ impl PlayPaths {
 
         Self {
             rom: args.rom.clone(),
-            core_path: args.core_path.clone(),
+            core_path: args.core.clone(),
             core_id,
             save_dir,
             state_dir,
@@ -71,17 +71,19 @@ impl PlayPaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     #[test]
     fn test_paths_derivation() {
-        let args = Args {
-            rom: PathBuf::from("game.nes"),
-            core_path: PathBuf::from("nestopia.so"),
-            core_id: "nestopia".to_string(),
-            dump_frame: None,
-            frames: None,
-            scale: crate::scale::ScaleMode::Aspect,
-        };
+        let args = Args::parse_from([
+            "play",
+            "--rom",
+            "game.nes",
+            "--core",
+            "nestopia.so",
+            "--core-id",
+            "nestopia",
+        ]);
         let paths = PlayPaths::from_args(&args);
 
         assert_eq!(paths.rom, PathBuf::from("game.nes"));
@@ -108,14 +110,15 @@ mod tests {
     }
 
     fn fceumm_paths() -> PlayPaths {
-        PlayPaths::from_args(&Args {
-            rom: PathBuf::from("/roms/NES/Alter Ego (World).nes"),
-            core_path: PathBuf::from("fceumm_libretro.dylib"),
-            core_id: "FCEUmm".to_string(),
-            dump_frame: None,
-            frames: None,
-            scale: crate::scale::ScaleMode::Aspect,
-        })
+        PlayPaths::from_args(&Args::parse_from([
+            "play",
+            "--rom",
+            "/roms/NES/Alter Ego (World).nes",
+            "--core",
+            "fceumm_libretro.dylib",
+            "--core-id",
+            "FCEUmm",
+        ]))
     }
 
     #[test]
@@ -164,14 +167,15 @@ mod tests {
 
     #[test]
     fn falls_back_when_rom_has_no_file_stem() {
-        let args = Args {
-            rom: PathBuf::from("/"),
-            core_path: PathBuf::from("nestopia.so"),
-            core_id: "nestopia".to_string(),
-            dump_frame: None,
-            frames: None,
-            scale: crate::scale::ScaleMode::Aspect,
-        };
+        let args = Args::parse_from([
+            "play",
+            "--rom",
+            "/",
+            "--core",
+            "nestopia.so",
+            "--core-id",
+            "nestopia",
+        ]);
         let paths = PlayPaths::from_args(&args);
 
         assert!(paths.sram_path().ends_with("game.srm"));

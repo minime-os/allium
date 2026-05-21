@@ -1,6 +1,8 @@
 use anyhow::Result;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
+
+#[cfg(feature = "miyoo")]
 use common::constants::ALLIUM_PLAY_LOG;
 
 // On hardware there is no terminal, so stderr must become a file before logging starts.

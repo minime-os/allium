@@ -35,7 +35,7 @@ pub unsafe fn clear_handler() {
 
 // These functions match libretro's ABI exactly, then immediately return to Rust code.
 pub unsafe extern "C" fn environment_callback(cmd: c_uint, data: *mut c_void) -> bool {
-    unsafe { with_handler(|handler| handler.on_environment(cmd, data)).unwrap_or(false) }
+    unsafe { with_handler(|h| h.on_environment(cmd, data)).unwrap_or(false) }
 }
 
 pub unsafe extern "C" fn video_refresh_callback(
@@ -44,20 +44,19 @@ pub unsafe extern "C" fn video_refresh_callback(
     height: c_uint,
     pitch: usize,
 ) {
-    unsafe { with_handler(|handler| handler.on_video_refresh(data, width, height, pitch)) };
+    unsafe { with_handler(|h| h.on_video_refresh(data, width, height, pitch)) };
 }
 
 pub unsafe extern "C" fn audio_sample_callback(left: i16, right: i16) {
-    unsafe { with_handler(|handler| handler.on_audio_sample(left, right)) };
+    unsafe { with_handler(|h| h.on_audio_sample(left, right)) };
 }
 
 pub unsafe extern "C" fn audio_sample_batch_callback(data: *const i16, frames: usize) -> usize {
-    let result = unsafe { with_handler(|handler| handler.on_audio_sample_batch(data, frames)).unwrap_or(0) };
-    result
+    unsafe { with_handler(|h| h.on_audio_sample_batch(data, frames)).unwrap_or(0) }
 }
 
 pub unsafe extern "C" fn input_poll_callback() {
-    unsafe { with_handler(|handler| handler.on_input_poll()) };
+    unsafe { with_handler(|h| h.on_input_poll()) };
 }
 
 pub unsafe extern "C" fn input_state_callback(
@@ -66,8 +65,7 @@ pub unsafe extern "C" fn input_state_callback(
     index: c_uint,
     id: c_uint,
 ) -> i16 {
-    let result = unsafe { with_handler(|handler| handler.on_input_state(port, device, index, id)).unwrap_or(0) };
-    result
+    unsafe { with_handler(|h| h.on_input_state(port, device, index, id)).unwrap_or(0) }
 }
 
 // Missing handlers can happen during startup/shutdown, so callbacks degrade to no-op values.

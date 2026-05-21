@@ -14,7 +14,7 @@ use crate::video::frame::{CapturedFrame, VideoFrameFormat};
 use crate::video::miyoo::MiyooVideo;
 #[cfg(feature = "simulator")]
 use crate::video::simulator::SimulatorVideo;
-use crate::video::{self, VideoBackend};
+use crate::video::{self, VideoBackend, VideoPresentResult};
 use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "miyoo")]
 use common::platform::{DefaultPlatform, Platform};
@@ -53,6 +53,75 @@ pub struct PlaySession {
 }
 
 const DUMP_WARMUP_FRAMES: usize = 60;
+
+// Platform abstraction: the main loop should not care whether it is on hardware or desktop.
+enum PlatformDriver {
+    #[cfg(feature = "simulator")]
+    Simulator(SimulatorVideo),
+    #[cfg(feature = "miyoo")]
+    Miyoo(MiyooVideo, DefaultPlatform),
+}
+
+impl PlatformDriver {
+    fn new(
+        source_width: u32,
+        source_height: u32,
+        aspect_ratio: f32,
+        scale: ScaleMode,
+    ) -> Result<Self> {
+        #[cfg(feature = "simulator")]
+        {
+            Ok(Self::Simulator(SimulatorVideo::new(
+                source_width, source_height, aspect_ratio, scale,
+            )?))
+        }
+        #[cfg(feature = "miyoo")]
+        {
+            Ok(Self::Miyoo(
+                MiyooVideo::new(source_width, source_height, aspect_ratio, scale)?,
+                DefaultPlatform::new()?,
+            ))
+        }
+    }
+
+    fn video(&mut self) -> &mut dyn VideoBackend {
+        match self {
+            #[cfg(feature = "simulator")]
+            Self::Simulator(v) => v,
+            #[cfg(feature = "miyoo")]
+            Self::Miyoo(v, _) => v,
+        }
+    }
+
+    #[allow(unused_variables)]
+    async fn before_run(&mut self, session: &mut PlaySession) {
+        match self {
+            #[cfg(feature = "miyoo")]
+            Self::Miyoo(_, platform) => session.poll_platform_input(platform).await,
+            #[cfg(feature = "simulator")]
+            Self::Simulator(_) => {}
+        }
+    }
+
+    fn after_run(&mut self, session: &mut PlaySession) -> Result<bool> {
+        match self {
+            #[cfg(feature = "simulator")]
+            Self::Simulator(video) => {
+                if session.present_frame(video).map(|r| r.should_quit)? {
+                    return Ok(true);
+                }
+                session.apply_simulator_input(video);
+            }
+            #[cfg(feature = "miyoo")]
+            Self::Miyoo(video, _) => {
+                if !session.paused {
+                    session.present_frame(video).map(|_| ())?;
+                }
+            }
+        }
+        Ok(false)
+    }
+}
 
 impl PlaySession {
     // Resolve paths up front so later stages do not repeat path policy.
@@ -274,8 +343,14 @@ impl PlaySession {
         let target_fps = av_info.timing.fps;
         let audio_sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
         let frame_interval = frame_interval(target_fps)?;
-        #[cfg(feature = "miyoo")]
-        let mut platform = DefaultPlatform::new()?;
+
+        let mut driver = PlatformDriver::new(
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.geometry.aspect_ratio,
+            self.args.scale,
+        )?;
+
         let mut frames_run = 0u64;
         let started_at = Instant::now();
         let mut next_frame_at = started_at;
@@ -284,27 +359,11 @@ impl PlaySession {
         #[cfg(unix)]
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .context("Failed to install SIGTERM handler")?;
-        #[cfg(feature = "simulator")]
-        let mut simulator_video = SimulatorVideo::new(
-            av_info.geometry.base_width,
-            av_info.geometry.base_height,
-            av_info.geometry.aspect_ratio,
-            self.args.scale,
-        )?;
-        #[cfg(feature = "miyoo")]
-        let mut miyoo_video = MiyooVideo::new(
-            av_info.geometry.base_width,
-            av_info.geometry.base_height,
-            av_info.geometry.aspect_ratio,
-            self.args.scale,
-        )?;
+
         let (mut audio_producer, audio_consumer) = AudioQueue::for_sample_rate(audio_sample_rate);
         audio_producer.set_muted(self.fast_forwarding);
         self.audio_producer = Some(audio_producer);
-        #[cfg(feature = "simulator")]
-        let _audio = crate::audio::SimulatorAudio::new(audio_sample_rate, audio_consumer)?;
-        #[cfg(feature = "miyoo")]
-        let _audio = crate::audio::MiyooAudio::new(audio_sample_rate, audio_consumer)?;
+        let _audio = crate::audio::AudioDriver::new(audio_sample_rate, audio_consumer)?;
         let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
         let command_state = Arc::clone(&self.command_state);
         let command_server = tokio::spawn(async move {
@@ -329,18 +388,14 @@ impl PlaySession {
             }
             while let Ok(event) = control_rx.try_recv() {
                 self.apply_control_event(event)?;
-                #[cfg(feature = "simulator")]
-                self.apply_scale_to_simulator_video(&mut simulator_video)?;
-                #[cfg(feature = "miyoo")]
-                self.apply_scale_to_miyoo_video(&mut miyoo_video)?;
+                self.apply_scale(driver.video())?;
             }
             if self.should_quit {
                 shutdown_reason = "quit command";
                 break;
             }
 
-            #[cfg(feature = "miyoo")]
-            self.poll_platform_input(&mut platform).await;
+            driver.before_run(self).await;
             if !self.paused {
                 self.core
                     .as_ref()
@@ -348,16 +403,9 @@ impl PlaySession {
                     .run();
                 frames_run += 1;
             }
-            #[cfg(feature = "simulator")]
-            if self.present_simulator_frame(&mut simulator_video)? {
+            if driver.after_run(self)? {
                 shutdown_reason = "window closed";
                 break;
-            }
-            #[cfg(feature = "simulator")]
-            self.apply_simulator_input(&mut simulator_video);
-            #[cfg(feature = "miyoo")]
-            if !self.paused {
-                self.present_miyoo_frame(&mut miyoo_video)?;
             }
             next_frame_at += frame_interval;
 
@@ -390,10 +438,7 @@ impl PlaySession {
                 }
                 LoopWait::Control(event) => {
                     self.apply_control_event(event)?;
-                    #[cfg(feature = "simulator")]
-                    self.apply_scale_to_simulator_video(&mut simulator_video)?;
-                    #[cfg(feature = "miyoo")]
-                    self.apply_scale_to_miyoo_video(&mut miyoo_video)?;
+                    self.apply_scale(driver.video())?;
                 }
             }
         }
@@ -537,41 +582,31 @@ impl PlaySession {
         }
     }
 
-    #[cfg(feature = "simulator")]
-    fn present_simulator_frame(&self, video: &mut SimulatorVideo) -> Result<bool> {
-        let frame = match &self.captured_frame {
-            Some(frame) => frame,
-            None => return Ok(false),
-        };
-        let format = match self.pixel_format {
-            Some(format) => format,
-            None => return Ok(false),
-        };
-
-        let result = video.present(frame, format)?;
-        Ok(result.should_quit)
+    fn present_frame(
+        &self,
+        video: &mut dyn VideoBackend,
+    ) -> Result<VideoPresentResult> {
+        let frame = self.captured_frame.as_ref().ok_or_else(|| anyhow!("No frame captured"))?;
+        let format = self.pixel_format.ok_or_else(|| anyhow!("No pixel format set"))?;
+        video.present(frame, format)
     }
 
-    #[cfg(feature = "miyoo")]
-    fn present_miyoo_frame(&self, video: &mut MiyooVideo) -> Result<()> {
-        let frame = match &self.captured_frame {
-            Some(frame) => frame,
-            None => return Ok(()),
-        };
-        let format = match self.pixel_format {
-            Some(format) => format,
-            None => return Ok(()),
-        };
-
-        video.present(frame, format)?;
-        Ok(())
+    fn apply_scale(&self, video: &mut dyn VideoBackend) -> Result<()> {
+        let av_info = self
+            .av_info
+            .as_ref()
+            .ok_or_else(|| anyhow!("AV info not loaded"))?;
+        video.set_scale(
+            self.scale_mode,
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.geometry.aspect_ratio,
+        )
     }
 
-    // A one-frame dump proves callbacks and pixel conversion before real video exists.
     fn dump_captured_frame(&self) -> Result<()> {
-        let path = match &self.args.dump_frame {
-            Some(p) => p,
-            None => return Ok(()),
+        let Some(path) = &self.args.dump_frame else {
+            return Ok(());
         };
 
         let frame = self
@@ -664,34 +699,6 @@ impl PlaySession {
                 Ok(())
             }
         }
-    }
-
-    #[cfg(feature = "simulator")]
-    fn apply_scale_to_simulator_video(&self, video: &mut SimulatorVideo) -> Result<()> {
-        let av_info = self
-            .av_info
-            .as_ref()
-            .ok_or_else(|| anyhow!("AV info not loaded"))?;
-        video.set_scale(
-            self.scale_mode,
-            av_info.geometry.base_width,
-            av_info.geometry.base_height,
-            av_info.geometry.aspect_ratio,
-        )
-    }
-
-    #[cfg(feature = "miyoo")]
-    fn apply_scale_to_miyoo_video(&self, video: &mut MiyooVideo) -> Result<()> {
-        let av_info = self
-            .av_info
-            .as_ref()
-            .ok_or_else(|| anyhow!("AV info not loaded"))?;
-        video.set_scale(
-            self.scale_mode,
-            av_info.geometry.base_width,
-            av_info.geometry.base_height,
-            av_info.geometry.aspect_ratio,
-        )
     }
 }
 
@@ -923,20 +930,21 @@ impl Drop for PlaySession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
     use std::ffi::CStr;
     use std::os::raw::c_char;
-    use std::path::PathBuf;
     use std::time::Duration;
 
     fn test_session() -> PlaySession {
-        PlaySession::new(Args {
-            rom: PathBuf::from("game.nes"),
-            core_path: PathBuf::from("nestopia_libretro.dylib"),
-            core_id: "nestopia".to_string(),
-            dump_frame: None,
-            frames: None,
-            scale: crate::scale::ScaleMode::Aspect,
-        })
+        PlaySession::new(Args::parse_from([
+            "play",
+            "--rom",
+            "game.nes",
+            "--core",
+            "nestopia_libretro.dylib",
+            "--core-id",
+            "nestopia",
+        ]))
     }
 
     #[test]

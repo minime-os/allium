@@ -20,6 +20,7 @@ simple_logger.workspace = true
 tokio = { workspace = true, features = ["full"] }
 toml.workspace = true
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+clap = { workspace = true, features = ["derive"] }
 cpal = { version = "0.15.3", optional = true }
 framebuffer = { workspace = true, optional = true }
 softbuffer = { workspace = true, optional = true }

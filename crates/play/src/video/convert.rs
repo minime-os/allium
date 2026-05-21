@@ -1,12 +1,14 @@
 use anyhow::{Result, anyhow};
 
 use super::frame::{
-    BGRA8888_BYTES_PER_PIXEL, CapturedFrame, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
-    rgb565_to_rgb, validate_frame,
+    CapturedFrame, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb,
+    validate_frame,
 };
+#[cfg(feature = "miyoo")]
+use super::frame::BGRA8888_BYTES_PER_PIXEL;
 use crate::scale::ScaleRect;
 
-#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+#[cfg(feature = "simulator")]
 pub fn scale_rgb565_to_xrgb8888(
     frame: &CapturedFrame,
     output: &mut [u32],
@@ -35,7 +37,7 @@ pub fn scale_rgb565_to_xrgb8888(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+#[cfg(feature = "simulator")]
 pub fn scale_xrgb8888_to_xrgb8888(
     frame: &CapturedFrame,
     output: &mut [u32],
@@ -64,7 +66,7 @@ pub fn scale_xrgb8888_to_xrgb8888(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+#[cfg(feature = "miyoo")]
 pub fn scale_rgb565_to_rgb565(
     frame: &CapturedFrame,
     output: &mut [u8],
@@ -100,7 +102,7 @@ pub fn scale_rgb565_to_rgb565(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+#[cfg(feature = "miyoo")]
 pub fn scale_rgb565_to_bgra8888(
     frame: &CapturedFrame,
     output: &mut [u8],
@@ -139,7 +141,7 @@ pub fn scale_rgb565_to_bgra8888(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "miyoo"), allow(dead_code))]
+#[cfg(feature = "miyoo")]
 pub fn scale_xrgb8888_to_bgra8888(
     frame: &CapturedFrame,
     output: &mut [u8],
@@ -210,6 +212,7 @@ fn for_each_scaled_pixel<F>(
     }
 }
 
+#[cfg(feature = "simulator")]
 fn validate_scaled_u32_output(
     output: &[u32],
     output_width: u32,
@@ -229,6 +232,7 @@ fn validate_scaled_u32_output(
     Ok(())
 }
 
+#[cfg(feature = "miyoo")]
 fn validate_scaled_byte_output(
     output: &[u8],
     output_pitch: usize,
@@ -261,6 +265,7 @@ fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) 
     Ok(())
 }
 
+#[cfg(feature = "miyoo")]
 fn fill_bgra8888_black(output: &mut [u8]) {
     for pixel in output.chunks_exact_mut(BGRA8888_BYTES_PER_PIXEL) {
         pixel[0] = 0;
@@ -270,7 +275,7 @@ fn fill_bgra8888_black(output: &mut [u8]) {
     }
 }
 
-#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+#[cfg(feature = "simulator")]
 fn pack_xrgb8888(r: u8, g: u8, b: u8) -> u32 {
     (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
@@ -280,6 +285,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "simulator")]
     fn scales_rgb565_to_softbuffer_pixels() {
         let frame = CapturedFrame::new(vec![0x00, 0xf8], 1, 1, 2);
         let mut output = vec![0; 4];
@@ -302,6 +308,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "miyoo")]
     fn scales_rgb565_to_bgra8888_with_letterbox() {
         let frame = CapturedFrame::new(vec![0xe0, 0x07], 1, 1, 2);
         let mut output = vec![0xaa; 24];

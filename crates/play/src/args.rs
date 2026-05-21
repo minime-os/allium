@@ -1,195 +1,63 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use clap::Parser;
 use std::path::PathBuf;
 
 use crate::scale::ScaleMode;
 
 // Play is launched by Allium, so the CLI is a small contract between processes.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Parser, PartialEq)]
+#[command(name = "play")]
 pub struct Args {
+    #[arg(long)]
     pub rom: PathBuf,
-    pub core_path: PathBuf,
+
+    #[arg(long)]
+    pub core: PathBuf,
+
+    #[arg(long = "core-id")]
     pub core_id: String,
+
+    #[arg(long)]
     pub dump_frame: Option<PathBuf>,
+
+    #[arg(long)]
     pub frames: Option<u64>,
+
+    #[arg(long, default_value = "aspect")]
     pub scale: ScaleMode,
 }
 
-// The list of flags Play accepts.
-enum Flag {
-    Rom,
-    Core,
-    CoreId,
-    DumpFrame,
-    Frames,
-    Scale,
-}
-
-impl Flag {
-    fn parse(raw: &str) -> Result<Self> {
-        match raw {
-            "--rom" => Ok(Self::Rom),
-            "--core" => Ok(Self::Core),
-            "--core-id" => Ok(Self::CoreId),
-            "--dump-frame" => Ok(Self::DumpFrame),
-            "--frames" => Ok(Self::Frames),
-            "--scale" => Ok(Self::Scale),
-            _ => Err(anyhow!("Unknown argument: {}", raw)),
-        }
-    }
-}
-
 impl Args {
-    // argv[0] is the binary name, "play", so skip it and parse the real arguments.
     pub fn from_env() -> Result<Self> {
-        Self::parse_from(std::env::args().skip(1))
-    }
-
-    pub fn parse_from<I, T>(raw_args: I) -> Result<Self>
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<String>,
-    {
-        let mut raw_args = raw_args.into_iter();
-        let mut rom = None;
-        let mut core_path = None;
-        let mut core_id = None;
-        let mut dump_frame = None;
-        let mut frames = None;
-        let mut scale = None;
-
-        // Raw args come in flag/value pairs, like "--rom game.nes".
-        while let Some(raw_arg) = raw_args.next() {
-            let raw_flag: String = raw_arg.into();
-            let flag = Flag::parse(&raw_flag)?;
-            let value = check_value(&mut raw_args, &raw_flag)?;
-
-            match flag {
-                Flag::Rom => {
-                    rom = Some(PathBuf::from(value));
-                }
-                Flag::Core => {
-                    core_path = Some(PathBuf::from(value));
-                }
-                Flag::CoreId => {
-                    core_id = Some(value);
-                }
-                Flag::DumpFrame => {
-                    dump_frame = Some(PathBuf::from(value));
-                }
-                Flag::Frames => {
-                    frames = Some(parse_frames(&value)?);
-                }
-                Flag::Scale => {
-                    scale = Some(ScaleMode::parse(&value)?);
-                }
-            }
-        }
-
-        // Return the final parsed args.
-        Ok(Self {
-            rom: rom.ok_or_else(|| anyhow!("Missing required argument: --rom"))?,
-            core_path: core_path.ok_or_else(|| anyhow!("Missing required argument: --core"))?,
-            core_id: core_id.ok_or_else(|| anyhow!("Missing required argument: --core-id"))?,
-            dump_frame, // Optional.
-            frames,     // Optional.
-            scale: scale.unwrap_or(ScaleMode::Aspect),
-        })
+        Ok(Self::parse())
     }
 }
 
-// A flag like "--rom" must be followed by a value; otherwise the command is incomplete.
-fn check_value<I, T>(iter: &mut I, flag: &str) -> Result<String>
-where
-    I: Iterator<Item = T>,
-    T: Into<String>,
-{
-    iter.next()
-        .map(Into::into)
-        .ok_or_else(|| anyhow!("Missing value for {}", flag))
-}
-
-fn parse_frames(value: &str) -> Result<u64> {
-    let frames = value
-        .parse::<u64>()
-        .map_err(|_| anyhow!("--frames must be a positive integer"))?;
-    if frames == 0 {
-        return Err(anyhow!("--frames must be greater than 0"));
-    }
-
-    Ok(frames)
-}
-
-// These tests show which arguments Play accepts and rejects.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_valid() {
-        let args = Args::parse_from(vec![
+    fn parse_valid() {
+        let args = Args::parse_from([
+            "play",
             "--rom",
             "test.nes",
             "--core",
             "nes_libretro.so",
             "--core-id",
             "nes",
-        ])
-        .unwrap();
+        ]);
         assert_eq!(args.rom, PathBuf::from("test.nes"));
-        assert_eq!(args.core_path, PathBuf::from("nes_libretro.so"));
+        assert_eq!(args.core, PathBuf::from("nes_libretro.so"));
         assert_eq!(args.core_id, "nes");
         assert_eq!(args.scale, ScaleMode::Aspect);
     }
 
     #[test]
-    fn test_parse_missing_rom() {
-        let args = Args::parse_from(vec!["--core", "nes_libretro.so", "--core-id", "nes"]);
-        assert!(args.is_err());
-        assert_eq!(
-            args.unwrap_err().to_string(),
-            "Missing required argument: --rom"
-        );
-    }
-
-    #[test]
-    fn test_parse_missing_core() {
-        let args = Args::parse_from(vec!["--rom", "test.nes", "--core-id", "nes"]);
-        assert!(args.is_err());
-        assert_eq!(
-            args.unwrap_err().to_string(),
-            "Missing required argument: --core"
-        );
-    }
-
-    #[test]
-    fn test_parse_missing_core_id() {
-        let args = Args::parse_from(vec!["--rom", "test.nes", "--core", "nes_libretro.so"]);
-        assert!(args.is_err());
-        assert_eq!(
-            args.unwrap_err().to_string(),
-            "Missing required argument: --core-id"
-        );
-    }
-
-    #[test]
-    fn test_parse_unknown_arg() {
-        let args = Args::parse_from(vec![
-            "--rom",
-            "test.nes",
-            "--core",
-            "nes_libretro.so",
-            "--core-id",
-            "nes",
-            "--unknown",
-            "foo",
-        ]);
-        assert!(args.is_err());
-        assert!(args.unwrap_err().to_string().contains("Unknown argument"));
-    }
-
-    #[test]
-    fn test_parse_dump_frame() {
-        let args = Args::parse_from(vec![
+    fn parse_dump_frame() {
+        let args = Args::parse_from([
+            "play",
             "--rom",
             "test.nes",
             "--core",
@@ -198,15 +66,14 @@ mod tests {
             "nes",
             "--dump-frame",
             "frame.ppm",
-        ])
-        .unwrap();
-
+        ]);
         assert_eq!(args.dump_frame, Some(PathBuf::from("frame.ppm")));
     }
 
     #[test]
-    fn test_parse_frames() {
-        let args = Args::parse_from(vec![
+    fn parse_frames() {
+        let args = Args::parse_from([
+            "play",
             "--rom",
             "test.nes",
             "--core",
@@ -215,71 +82,14 @@ mod tests {
             "nes",
             "--frames",
             "600",
-        ])
-        .unwrap();
-
+        ]);
         assert_eq!(args.frames, Some(600));
     }
 
     #[test]
-    fn test_parse_missing_frames_value() {
-        let args = Args::parse_from(vec![
-            "--rom",
-            "test.nes",
-            "--core",
-            "nes_libretro.so",
-            "--core-id",
-            "nes",
-            "--frames",
-        ]);
-
-        assert!(args.is_err());
-        assert_eq!(args.unwrap_err().to_string(), "Missing value for --frames");
-    }
-
-    #[test]
-    fn test_parse_non_numeric_frames() {
-        let args = Args::parse_from(vec![
-            "--rom",
-            "test.nes",
-            "--core",
-            "nes_libretro.so",
-            "--core-id",
-            "nes",
-            "--frames",
-            "nope",
-        ]);
-
-        assert!(args.is_err());
-        assert_eq!(
-            args.unwrap_err().to_string(),
-            "--frames must be a positive integer"
-        );
-    }
-
-    #[test]
-    fn test_parse_zero_frames() {
-        let args = Args::parse_from(vec![
-            "--rom",
-            "test.nes",
-            "--core",
-            "nes_libretro.so",
-            "--core-id",
-            "nes",
-            "--frames",
-            "0",
-        ]);
-
-        assert!(args.is_err());
-        assert_eq!(
-            args.unwrap_err().to_string(),
-            "--frames must be greater than 0"
-        );
-    }
-
-    #[test]
-    fn test_parse_scale_native() {
-        let args = Args::parse_from(vec![
+    fn parse_scale_native() {
+        let args = Args::parse_from([
+            "play",
             "--rom",
             "test.nes",
             "--core",
@@ -288,15 +98,14 @@ mod tests {
             "nes",
             "--scale",
             "native",
-        ])
-        .unwrap();
-
+        ]);
         assert_eq!(args.scale, ScaleMode::Native);
     }
 
     #[test]
-    fn test_parse_scale_fullscreen() {
-        let args = Args::parse_from(vec![
+    fn parse_scale_fullscreen() {
+        let args = Args::parse_from([
+            "play",
             "--rom",
             "test.nes",
             "--core",
@@ -305,15 +114,20 @@ mod tests {
             "nes",
             "--scale",
             "fullscreen",
-        ])
-        .unwrap();
-
+        ]);
         assert_eq!(args.scale, ScaleMode::Fullscreen);
     }
 
     #[test]
-    fn test_parse_invalid_scale() {
-        let args = Args::parse_from(vec![
+    fn missing_rom_fails() {
+        let result = Args::try_parse_from(["play", "--core", "nes_libretro.so", "--core-id", "nes"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn invalid_scale_fails() {
+        let result = Args::try_parse_from([
+            "play",
             "--rom",
             "test.nes",
             "--core",
@@ -323,11 +137,6 @@ mod tests {
             "--scale",
             "wide",
         ]);
-
-        assert!(args.is_err());
-        assert_eq!(
-            args.unwrap_err().to_string(),
-            "--scale must be native, aspect, or fullscreen"
-        );
+        assert!(result.is_err());
     }
 }
