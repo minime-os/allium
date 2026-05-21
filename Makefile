@@ -51,7 +51,8 @@ build: third-party/my283
 	patchelf \
 		--replace-needed third-party/my283/usr/lib/libcam_os_wrapper.so libcam_os_wrapper.so \
 		--replace-needed third-party/my283/usr/lib/libmi_sys.so libmi_sys.so \
-		target/$(TARGET_TRIPLE)/release/myctl
+		target/$(TARGET_TRIPLE)/release/myctl \
+		target/$(TARGET_TRIPLE)/release/play
 
 .PHONY: debug
 debug: third-party/my283
