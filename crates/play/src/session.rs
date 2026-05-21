@@ -182,6 +182,9 @@ impl PlaySession {
 
     // The order mirrors libretro's lifecycle: core first, content second, frames last.
     async fn execute_session(&mut self) -> Result<()> {
+        #[cfg(feature = "miyoo")]
+        let _miyoo_guard = crate::miyoo_env::MiyooSystemGuard::new(&self.paths.core_id);
+
         info!("execute_session: loading core...");
         self.load_core()?;
         info!("execute_session: loading game...");

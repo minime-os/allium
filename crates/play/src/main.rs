@@ -15,6 +15,8 @@ mod scale;
 mod session;
 mod udp;
 mod video;
+#[cfg(feature = "miyoo")]
+mod miyoo_env;
 
 use anyhow::Result;
 use args::Args;
