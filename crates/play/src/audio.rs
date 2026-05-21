@@ -503,11 +503,11 @@ fn run_alsa_thread(
     }
 
     let api = unsafe { AlsaApi::load()? };
-    let name = CString::new("hw:0,0")?;
+    let name = CString::new("plughw:0,0")?;
     let mut pcm = std::ptr::null_mut();
     api.check(
         unsafe { (api.snd_pcm_open)(&mut pcm, name.as_ptr(), SND_PCM_STREAM_PLAYBACK, 0) },
-        "Failed to open ALSA PCM hw:0,0",
+        "Failed to open ALSA PCM plughw:0,0",
     )?;
     let pcm = PcmHandle { api: &api, pcm };
 
@@ -560,11 +560,10 @@ fn run_alsa_thread(
         "Failed to set ALSA sample rate",
     )?;
     if actual_rate != sample_rate {
-        return Err(anyhow!(
-            "ALSA selected {} Hz for core sample rate {} Hz; refusing to resample",
-            actual_rate,
-            sample_rate
-        ));
+        warn!(
+            "ALSA selected {} Hz for core sample rate {} Hz (resampling will be used)",
+            actual_rate, sample_rate
+        );
     }
     let mut buffer_frames = BUFFER_FRAMES;
     api.check(
@@ -596,7 +595,7 @@ fn run_alsa_thread(
     )?;
 
     info!(
-        "Starting Miyoo ALSA audio on hw:0,0: sample_rate={}, period_frames={}, buffer_frames={}",
+        "Starting Miyoo ALSA audio on plughw:0,0: sample_rate={}, period_frames={}, buffer_frames={}",
         sample_rate, period_frames, buffer_frames
     );
 
