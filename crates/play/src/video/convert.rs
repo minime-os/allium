@@ -90,7 +90,7 @@ pub fn scale_rgb565_to_rgb565(
         output_pitch as u32 / RGB565_BYTES_PER_PIXEL as u32,
         output_height,
         rect,
-        true,
+        false,
         true,
         |source_start, output_index| {
             let output_start = output_index * RGB565_BYTES_PER_PIXEL;
@@ -126,7 +126,7 @@ pub fn scale_rgb565_to_bgra8888(
         output_pitch as u32 / BGRA8888_BYTES_PER_PIXEL as u32,
         output_height,
         rect,
-        true,
+        false,
         true,
         |source_start, output_index| {
             let output_start = output_index * BGRA8888_BYTES_PER_PIXEL;
@@ -165,7 +165,7 @@ pub fn scale_xrgb8888_to_bgra8888(
         output_pitch as u32 / BGRA8888_BYTES_PER_PIXEL as u32,
         output_height,
         rect,
-        true,
+        false,
         true,
         |source_start, output_index| {
             let output_start = output_index * BGRA8888_BYTES_PER_PIXEL;
