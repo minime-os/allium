@@ -443,10 +443,28 @@ fn run_miyoo_thread(
     let mut buffer = vec![0i16; PERIOD_FRAMES * CHANNELS];
     let mut seq: MI_U32 = 0;
 
+    // The audio thread must pre-buffer a small safety cushion before starting playback.
+    // Because the emulated core pushes audio dynamically (e.g. 735 frames per video frame)
+    // while the hardware device consumes fixed periods of 1024 frames, running without a cushion
+    // guarantees constant micro-underruns and silent padding gaps that sound like severe stutter.
+    let mut buffering = true;
+    let buffering_threshold = PERIOD_FRAMES * CHANNELS * 2;
+
     while running.load(Ordering::Relaxed) {
-        let stats = consumer.fill_i16(&mut buffer);
-        if stats.underrun_frames > 0 {
-            // continue; MI_AO will play silence for gaps
+        let occupied = consumer.consumer.occupied_len();
+        if buffering {
+            if occupied >= buffering_threshold {
+                buffering = false;
+            } else {
+                buffer.fill(0);
+            }
+        }
+
+        if !buffering {
+            let stats = consumer.fill_i16(&mut buffer);
+            if stats.frames_filled < PERIOD_FRAMES {
+                buffering = true;
+            }
         }
 
         let mut frame = MI_AUDIO_Frame_s {
