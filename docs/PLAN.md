@@ -806,9 +806,9 @@ MinArch can switch the Miyoo CPU governor to `performance` and adjust min freq. 
 
 For cores that emit XRGB8888 instead of RGB565. Add this later as a non-v1 pixel conversion path; keep the main video path RGB565-first.
 
-### Bonus G: Debug overlay
+### Bonus G: Debug overlay [DONE]
 
-FPS, frame time, audio underrun count, cpu freq. Render as a small text overlay using rusttype (workspace dep). Toggle with a UDP command.
+FPS, frame time, and CPU usage are rendered as a small text overlay using a high-performance custom 5x9 pixel bitmap font (matching reference `minarch`). Supported through `--hud` CLI flag, config file option, and `ALLIUM_HUD` environment variable.
 
 ### Bonus H: Per-core controller mappings
 

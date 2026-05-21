@@ -1,6 +1,7 @@
 pub mod convert;
 pub mod frame;
 pub mod ppm;
+pub mod hud;
 
 #[cfg(feature = "miyoo")]
 pub mod miyoo;

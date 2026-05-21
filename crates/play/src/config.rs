@@ -6,6 +6,7 @@ use serde::Deserialize;
 pub struct PlayConfig {
     pub autosave: bool,
     pub autoload: bool,
+    pub hud: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -17,6 +18,7 @@ struct ConfigFile {
 struct PlaySection {
     autosave: Option<bool>,
     autoload: Option<bool>,
+    hud: Option<bool>,
 }
 
 impl Default for PlayConfig {
@@ -24,6 +26,7 @@ impl Default for PlayConfig {
         Self {
             autosave: true,
             autoload: true,
+            hud: false,
         }
     }
 }
@@ -48,6 +51,7 @@ impl PlayConfig {
         Ok(Self {
             autosave: play.autosave.unwrap_or(true),
             autoload: play.autoload.unwrap_or(true),
+            hud: play.hud.unwrap_or(false),
         })
     }
 }
@@ -63,6 +67,7 @@ mod tests {
             PlayConfig {
                 autosave: true,
                 autoload: true,
+                hud: false,
             }
         );
     }
@@ -74,6 +79,19 @@ mod tests {
             PlayConfig {
                 autosave: false,
                 autoload: false,
+                hud: false,
+            }
+        );
+    }
+
+    #[test]
+    fn config_can_enable_hud() {
+        assert_eq!(
+            PlayConfig::from_str("[play]\nhud = true\n").unwrap(),
+            PlayConfig {
+                autosave: true,
+                autoload: true,
+                hud: true,
             }
         );
     }

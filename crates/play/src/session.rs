@@ -50,6 +50,15 @@ pub struct PlaySession {
     command_state: Arc<CommandState>,
     system_dir: CString,
     save_dir: CString,
+    hud_enabled: bool,
+    last_hud_update: std::time::Instant,
+    fps_ticks: u32,
+    cpu_ticks: u32,
+    fps_double: f64,
+    cpu_double: f64,
+    use_double: f64,
+    #[allow(dead_code)]
+    last_use_ticks: u64,
 }
 
 const DUMP_WARMUP_FRAMES: usize = 60;
@@ -136,6 +145,7 @@ impl PlaySession {
             PlayConfig::default()
         });
         let scale_mode = args.scale;
+        let hud_enabled = args.hud || config.hud || std::env::var("ALLIUM_HUD").is_ok();
         Self {
             args,
             paths,
@@ -158,6 +168,14 @@ impl PlaySession {
             command_state: CommandState::new(0),
             system_dir,
             save_dir,
+            hud_enabled,
+            last_hud_update: std::time::Instant::now(),
+            fps_ticks: 0,
+            cpu_ticks: 0,
+            fps_double: 0.0,
+            cpu_double: 0.0,
+            use_double: 0.0,
+            last_use_ticks: 0,
         }
     }
 
@@ -405,6 +423,7 @@ impl PlaySession {
                     .ok_or_else(|| anyhow!("Core not loaded"))?
                     .run();
                 frames_run += 1;
+                self.cpu_ticks += 1;
             }
             if driver.after_run(self)? {
                 shutdown_reason = "window closed";
@@ -881,6 +900,33 @@ impl LibretroCallbacks for PlaySession {
         unsafe {
             ptr::copy_nonoverlapping(data as *const u8, frame.data.as_mut_ptr(), size);
         }
+
+        self.fps_ticks += 1;
+
+        if self.hud_enabled {
+            self.update_hud_metrics();
+            if let Some(format) = self.pixel_format {
+                let fps = self.fps_double;
+                let cpu = self.cpu_double;
+                let usage = self.use_double;
+                let scale_mode = self.scale_mode;
+                let aspect = self.av_info.as_ref().map(|av| av.geometry.aspect_ratio).unwrap_or(0.0);
+                
+                let frame = self.captured_frame.as_mut().unwrap();
+                Self::draw_hud_on_buffer(
+                    &mut frame.data,
+                    width as u32,
+                    height as u32,
+                    pitch,
+                    format,
+                    fps,
+                    cpu,
+                    usage,
+                    scale_mode,
+                    aspect,
+                );
+            }
+        }
     }
 
     fn on_audio_sample(&mut self, left: i16, right: i16) {
@@ -928,6 +974,74 @@ impl PlaySession {
             *(data as *mut bool) = value;
         }
         true
+    }
+
+    fn update_hud_metrics(&mut self) {
+        // Track the elapsed time to periodically update framerates and usage.
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(self.last_hud_update);
+        if elapsed >= std::time::Duration::from_secs(1) {
+            let elapsed_secs = elapsed.as_secs_f64();
+            self.fps_double = self.fps_ticks as f64 / elapsed_secs;
+            self.cpu_double = self.cpu_ticks as f64 / elapsed_secs;
+            self.update_cpu_usage(elapsed_secs);
+            self.last_hud_update = now;
+            self.fps_ticks = 0;
+            self.cpu_ticks = 0;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn update_cpu_usage(&mut self, elapsed_secs: f64) {
+        // Retrieve standard Linux system tick metric to compute CPU percent usage.
+        if let Some(ticks) = get_cpu_usage_ticks() {
+            let ticksps = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+            if ticksps > 0 {
+                let use_ticks = ticks * 100 / ticksps as u64;
+                if self.last_use_ticks > 0 {
+                    let diff = use_ticks.saturating_sub(self.last_use_ticks);
+                    self.use_double = diff as f64 / elapsed_secs;
+                }
+                self.last_use_ticks = use_ticks;
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn update_cpu_usage(&mut self, _elapsed_secs: f64) {
+        // CPU usage metrics are only available on platform architectures with procfs.
+    }
+
+    fn draw_hud_on_buffer(
+        data: &mut [u8],
+        width: u32,
+        height: u32,
+        pitch: usize,
+        format: VideoFrameFormat,
+        fps: f64,
+        cpu: f64,
+        usage: f64,
+        scale_mode: ScaleMode,
+        aspect_ratio: f32,
+    ) {
+        // Query the correct scaling dimensions to construct exactly matching HUD text values.
+        let rect = crate::scale::calculate_scale_rect(
+            scale_mode,
+            width,
+            height,
+            aspect_ratio,
+            640,
+            480,
+        ).unwrap_or(crate::scale::ScaleRect { x: 0, y: 0, width: 640, height: 480 });
+        let scale = (640 / width).min(480 / height).max(1);
+        let tl = format!("{}x{} {}x", width, height, scale);
+        let tr = format!("{},{} {}x{}", rect.x, rect.y, width * scale, height * scale);
+        let bl = format!("{:.1}/{:.1} {}%", fps, cpu, usage as i32);
+        let br = format!("{}x{}", rect.width, rect.height);
+        crate::video::hud::blit_text(&tl, 2, 2, data, pitch, width, height, format);
+        crate::video::hud::blit_text(&tr, -2, 2, data, pitch, width, height, format);
+        crate::video::hud::blit_text(&bl, 2, -2, data, pitch, width, height, format);
+        crate::video::hud::blit_text(&br, -2, -2, data, pitch, width, height, format);
     }
 }
 
@@ -1044,3 +1158,15 @@ mod tests {
         assert_eq!(frame.data, second);
     }
 }
+
+#[cfg(target_os = "linux")]
+fn get_cpu_usage_ticks() -> Option<u64> {
+    // Parse /proc/self/stat robustly by locating the closing parenthesis of the process name.
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let r_paren = stat.rfind(')')?;
+    let after_comm = &stat[r_paren + 1..];
+    let mut parts = after_comm.split_whitespace();
+    let utime_str = parts.nth(11)?;
+    utime_str.parse::<u64>().ok()
+}
+

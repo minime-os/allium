@@ -25,6 +25,9 @@ pub struct Args {
 
     #[arg(long, default_value = "aspect")]
     pub scale: ScaleMode,
+
+    #[arg(long)]
+    pub hud: bool,
 }
 
 impl Args {
@@ -52,6 +55,7 @@ mod tests {
         assert_eq!(args.core, PathBuf::from("nes_libretro.so"));
         assert_eq!(args.core_id, "nes");
         assert_eq!(args.scale, ScaleMode::Aspect);
+        assert!(!args.hud);
     }
 
     #[test]
@@ -138,5 +142,20 @@ mod tests {
             "wide",
         ]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_hud() {
+        let args = Args::parse_from([
+            "play",
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--hud",
+        ]);
+        assert!(args.hud);
     }
 }

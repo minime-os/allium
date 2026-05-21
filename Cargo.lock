@@ -2573,6 +2573,7 @@ dependencies = [
  "cpal",
  "ffi",
  "framebuffer",
+ "libc",
  "libloading",
  "log",
  "nix 0.29.0",
