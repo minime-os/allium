@@ -411,6 +411,14 @@ impl PlaySession {
                 break;
             }
             next_frame_at += frame_interval;
+            let now = Instant::now();
+            if next_frame_at < now {
+                // The frame deadline must be bounded to the present time because any frame processing
+                // lag or sleep overshoots can leave the target time in the past. Left unchecked, this
+                // creates a tight, 100% CPU-bound catch-up loop that drops audio frames and completely
+                // starves the current-thread async executor of time to poll UDP commands (like Menu presses).
+                next_frame_at = now;
+            }
 
             if self.fast_forwarding {
                 tokio::task::yield_now().await;
