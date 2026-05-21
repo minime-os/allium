@@ -28,6 +28,10 @@ impl MiyooSystemGuard {
 
         block_libpadsp_preload();
 
+        // The cpu frequency needs to be locked at maximum speed because background power saving
+        // will aggressively throttle the clock rate during dynamic event-driven sleep cycles.
+        set_governor("performance");
+
         Self { swap_enabled }
     }
 }
@@ -44,6 +48,26 @@ impl Drop for MiyooSystemGuard {
             let swap_off_path = common::constants::ALLIUM_SCRIPTS_DIR.join("swap-off.sh");
             run_script(&swap_off_path);
         }
+
+        // Restoring the governor to ondemand allows the hardware to reduce power consumption
+        // and cool down when the active emulation session has ended.
+        set_governor("ondemand");
+    }
+}
+
+// Adjust the CPU frequency governor via sysfs to prevent battery-saving throttling.
+fn set_governor(governor: &str) {
+    let path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor";
+    if !Path::new(path).exists() {
+        return;
+    }
+    // The CPU frequency governor must be adjusted at the kernel level because Tokio's dynamic
+    // event-driven sleep cycles can confuse the default ondemand governor into clocking down.
+    // Setting performance ensures the CPU maintains its full 1.2 GHz clock during active emulation.
+    if let Err(err) = fs::write(path, governor) {
+        warn!("Failed to set CPU governor to {}: {}", governor, err);
+    } else {
+        info!("Successfully set CPU governor to {}", governor);
     }
 }
 
