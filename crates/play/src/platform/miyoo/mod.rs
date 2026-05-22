@@ -8,7 +8,7 @@ pub mod video;
 use crate::control::ControlEvent;
 use crate::input::JoypadState;
 use crate::platform::{EmulationPlatform, HostStats, InputBackend};
-use crate::scale::ScaleMode;
+use crate::video::ScaleMode;
 use anyhow::Result;
 use audio::MiyooAudio;
 use common::platform::{DefaultPlatform as CommonPlatform, Platform};

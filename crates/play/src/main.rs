@@ -12,12 +12,11 @@ mod paths;
 mod platform;
 mod save;
 mod hud;
-mod scale;
+mod video;
 mod session;
 mod timing;
 mod udp;
 mod unzip;
-mod frame;
 mod dump;
 
 

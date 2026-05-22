@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::Path;
 
-use crate::frame::{
+use crate::video::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb, validate_frame,
 };
 
@@ -53,7 +53,7 @@ fn ppm_len(width: u32, height: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::CapturedFrame;
+    use crate::video::CapturedFrame;
 
     #[test]
     fn encodes_rgb565_ppm() {

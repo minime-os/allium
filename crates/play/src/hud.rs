@@ -3,8 +3,8 @@
 // It handles rendering the statistics text directly onto the video buffer at appropriate positions.
 
 use std::time::{Duration, Instant};
-use crate::scale::{ScaleMode, calculate_scale_rect, ScaleRect};
-use crate::frame::VideoFrameFormat;
+use crate::video::{ScaleMode, calculate_scale_rect, ScaleRect};
+use crate::video::VideoFrameFormat;
 
 pub struct HudState {
     enabled: bool,

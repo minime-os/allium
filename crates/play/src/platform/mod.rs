@@ -12,8 +12,8 @@ pub mod simulator;
 
 use crate::control::ControlEvent;
 use crate::input::JoypadState;
-use crate::scale::ScaleMode;
-use crate::frame::{CapturedFrame, VideoFrameFormat};
+use crate::video::ScaleMode;
+use crate::video::{CapturedFrame, VideoFrameFormat};
 use anyhow::Result;
 
 #[derive(Default)]

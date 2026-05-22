@@ -2,8 +2,8 @@
 // It stores the last captured frame to support headless automated testing and PPM screenshots on demand.
 
 use crate::platform::VideoBackend;
-use crate::scale::ScaleMode;
-use crate::frame::{CapturedFrame, VideoFrameFormat};
+use crate::video::ScaleMode;
+use crate::video::{CapturedFrame, VideoFrameFormat};
 use crate::platform::VideoPresentResult;
 use crate::dump::dump_frame;
 use anyhow::{anyhow, Result};

@@ -2,8 +2,8 @@
 // This module writes raw pixels directly to the physical /dev/fb0 framebuffer.
 
 use crate::platform::VideoBackend;
-use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
-use crate::frame::{
+use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect};
+use crate::video::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
     validate_frame,
 };

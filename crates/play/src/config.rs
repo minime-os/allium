@@ -14,7 +14,7 @@ use common::constants::ALLIUM_CONFIG_PLAY;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use crate::scale::ScaleMode;
+use crate::video::ScaleMode;
 
 #[derive(Debug, Parser, PartialEq)]
 #[command(name = "play")]

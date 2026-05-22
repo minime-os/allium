@@ -8,7 +8,7 @@ use crate::audio::AudioConsumer;
 use crate::control::ControlEvent;
 use crate::input::JoypadState;
 use crate::platform::{EmulationPlatform, HostStats, InputBackend};
-use crate::scale::ScaleMode;
+use crate::video::ScaleMode;
 use anyhow::Result;
 use audio::SimulatorAudio;
 use common::platform::KeyEvent;

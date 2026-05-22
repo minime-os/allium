@@ -11,7 +11,7 @@
 
 use crate::session::PlaySession;
 use crate::libretro_sys::*;
-use crate::frame::{CapturedFrame, VideoFrameFormat};
+use crate::video::{CapturedFrame, VideoFrameFormat};
 use log::{info, warn, debug};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_uint, c_void};

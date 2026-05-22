@@ -2,8 +2,8 @@
 // It pumps OS/keyboard events and posts them via channels to the input component.
 
 use crate::control::ControlEvent;
-use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
-use crate::frame::{CapturedFrame, VideoFrameFormat};
+use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect};
+use crate::video::{CapturedFrame, VideoFrameFormat};
 use crate::platform::VideoPresentResult;
 use crate::platform::VideoBackend;
 use anyhow::{Context, Result, anyhow};
@@ -250,7 +250,7 @@ fn control_event_for_keycode(keycode: KeyCode) -> Option<ControlEvent> {
 // Simulator Pixel Scaling & Color Space Conversion
 // =========================================================================
 
-use crate::frame::{
+use crate::video::{
     RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb, validate_frame,
 };
 
