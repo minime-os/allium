@@ -1,4 +1,4 @@
-use crate::args::Args;
+use crate::config::Args;
 use anyhow::{Result, anyhow};
 use common::constants::{ALLIUM_BASE_DIR, ALLIUM_SD_ROOT};
 use std::path::PathBuf;

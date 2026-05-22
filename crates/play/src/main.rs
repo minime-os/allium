@@ -1,7 +1,6 @@
 #[cfg(not(any(feature = "simulator", feature = "miyoo")))]
 compile_error!("pick `simulator` or `miyoo` feature");
 
-mod args;
 mod audio;
 mod callbacks;
 mod config;
@@ -16,14 +15,14 @@ mod save;
 mod hud;
 mod scale;
 mod session;
+mod timing;
 mod udp;
 mod unzip;
 mod video;
-#[cfg(feature = "miyoo")]
-mod miyoo_env;
+
 
 use anyhow::Result;
-use args::Args;
+use config::Args;
 use session::PlaySession;
 
 // Tokio lets the main emulation loop react to external events such as low-battery autosave.

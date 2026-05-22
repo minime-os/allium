@@ -23,29 +23,37 @@ pub struct Core {
     symbols: CoreSymbols,
 }
 
+struct CoreLifecycleSymbols {
+    retro_init: unsafe extern "C" fn(),
+    retro_deinit: unsafe extern "C" fn(),
+    retro_api_version: unsafe extern "C" fn() -> c_uint,
+    retro_get_system_info: unsafe extern "C" fn(info: *mut retro_system_info),
+    retro_get_system_av_info: unsafe extern "C" fn(info: *mut retro_system_av_info),
+    retro_set_environment: unsafe extern "C" fn(cb: retro_environment_t),
+    retro_set_video_refresh: unsafe extern "C" fn(cb: retro_video_refresh_t),
+    retro_set_audio_sample: unsafe extern "C" fn(cb: retro_audio_sample_t),
+    retro_set_audio_sample_batch: unsafe extern "C" fn(cb: retro_audio_sample_batch_t),
+    retro_set_input_poll: unsafe extern "C" fn(cb: retro_input_poll_t),
+    retro_set_input_state: unsafe extern "C" fn(cb: retro_input_state_t),
+}
+
+struct CoreGameplaySymbols {
+    retro_load_game: unsafe extern "C" fn(game: *const retro_game_info) -> bool,
+    retro_unload_game: unsafe extern "C" fn(),
+    retro_run: unsafe extern "C" fn(),
+    retro_reset: unsafe extern "C" fn(),
+    retro_serialize_size: unsafe extern "C" fn() -> usize,
+    retro_serialize: unsafe extern "C" fn(data: *mut c_void, len: usize) -> bool,
+    retro_unserialize: unsafe extern "C" fn(data: *const c_void, len: usize) -> bool,
+    retro_get_memory_data: unsafe extern "C" fn(id: c_uint) -> *mut c_void,
+    retro_get_memory_size: unsafe extern "C" fn(id: c_uint) -> usize,
+}
+
 // CoreSymbols is the raw libretro function table loaded from the dynamic library.
 #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
 struct CoreSymbols {
-    retro_init: unsafe extern "C" fn(), // Start the core after callbacks are registered.
-    retro_deinit: unsafe extern "C" fn(), // Let the core clean up before the library unloads.
-    retro_api_version: unsafe extern "C" fn() -> c_uint, // Check that Play and the core speak the same API version.
-    retro_get_system_info: unsafe extern "C" fn(info: *mut retro_system_info), // Ask what the core is and what content it accepts.
-    retro_get_system_av_info: unsafe extern "C" fn(info: *mut retro_system_av_info), // Ask for video geometry and audio timing after loading content.
-    retro_set_environment: unsafe extern "C" fn(cb: retro_environment_t), // Give the core a way to ask frontend questions.
-    retro_set_video_refresh: unsafe extern "C" fn(cb: retro_video_refresh_t), // Give the core a callback for each video frame.
-    retro_set_audio_sample: unsafe extern "C" fn(cb: retro_audio_sample_t), // Give the core a callback for one stereo audio sample.
-    retro_set_audio_sample_batch: unsafe extern "C" fn(cb: retro_audio_sample_batch_t), // Give the core a callback for a batch of audio frames.
-    retro_set_input_poll: unsafe extern "C" fn(cb: retro_input_poll_t), // Let the core ask Play to refresh input state.
-    retro_set_input_state: unsafe extern "C" fn(cb: retro_input_state_t), // Let the core ask whether a button/input is active.
-    retro_load_game: unsafe extern "C" fn(game: *const retro_game_info) -> bool, // Hand the selected ROM to the core.
-    retro_unload_game: unsafe extern "C" fn(), // Release game-specific state while keeping the core loaded.
-    retro_run: unsafe extern "C" fn(),         // Execute one emulation frame.
-    retro_reset: unsafe extern "C" fn(),       // Reset loaded content.
-    retro_serialize_size: unsafe extern "C" fn() -> usize, // Ask how large a save state buffer must be.
-    retro_serialize: unsafe extern "C" fn(data: *mut c_void, len: usize) -> bool, // Copy core state into a buffer.
-    retro_unserialize: unsafe extern "C" fn(data: *const c_void, len: usize) -> bool, // Restore core state from a buffer.
-    retro_get_memory_data: unsafe extern "C" fn(id: c_uint) -> *mut c_void, // Get core-owned memory such as SRAM.
-    retro_get_memory_size: unsafe extern "C" fn(id: c_uint) -> usize, // Get core-owned memory size.
+    lifecycle: CoreLifecycleSymbols,
+    gameplay: CoreGameplaySymbols,
 }
 
 impl Core {
@@ -64,8 +72,7 @@ impl Core {
     }
 }
 
-impl CoreSymbols {
-    // Step 2: after the library is open, load every libretro function Play needs.
+impl CoreLifecycleSymbols {
     unsafe fn load(lib: &Library) -> Result<Self> {
         unsafe {
             Ok(Self {
@@ -80,6 +87,15 @@ impl CoreSymbols {
                 retro_set_audio_sample_batch: load_symbol(lib, b"retro_set_audio_sample_batch")?,
                 retro_set_input_poll: load_symbol(lib, b"retro_set_input_poll")?,
                 retro_set_input_state: load_symbol(lib, b"retro_set_input_state")?,
+            })
+        }
+    }
+}
+
+impl CoreGameplaySymbols {
+    unsafe fn load(lib: &Library) -> Result<Self> {
+        unsafe {
+            Ok(Self {
                 retro_load_game: load_symbol(lib, b"retro_load_game")?,
                 retro_unload_game: load_symbol(lib, b"retro_unload_game")?,
                 retro_run: load_symbol(lib, b"retro_run")?,
@@ -92,10 +108,19 @@ impl CoreSymbols {
             })
         }
     }
+}
+
+impl CoreSymbols {
+    // Step 2: after the library is open, load every libretro function Play needs.
+    unsafe fn load(lib: &Library) -> Result<Self> {
+        let lifecycle = unsafe { CoreLifecycleSymbols::load(lib)? };
+        let gameplay = unsafe { CoreGameplaySymbols::load(lib)? };
+        Ok(Self { lifecycle, gameplay })
+    }
 
     // Step 3: reject cores using an API version Play does not understand.
     fn check_api_version(&self) -> Result<()> {
-        let api_version = unsafe { (self.retro_api_version)() };
+        let api_version = unsafe { (self.lifecycle.retro_api_version)() };
         if api_version != RETRO_API_VERSION {
             return Err(anyhow!("Unsupported libretro API version: {}", api_version));
         }
@@ -107,26 +132,26 @@ impl CoreSymbols {
     fn install_callbacks(&self) {
         use crate::callbacks::*;
         unsafe {
-            (self.retro_set_environment)(Some(environment_callback));
-            (self.retro_set_video_refresh)(Some(video_refresh_callback));
-            (self.retro_set_audio_sample)(Some(audio_sample_callback));
-            (self.retro_set_audio_sample_batch)(Some(audio_sample_batch_callback));
-            (self.retro_set_input_poll)(Some(input_poll_callback));
-            (self.retro_set_input_state)(Some(input_state_callback));
+            (self.lifecycle.retro_set_environment)(Some(environment_callback));
+            (self.lifecycle.retro_set_video_refresh)(Some(video_refresh_callback));
+            (self.lifecycle.retro_set_audio_sample)(Some(audio_sample_callback));
+            (self.lifecycle.retro_set_audio_sample_batch)(Some(audio_sample_batch_callback));
+            (self.lifecycle.retro_set_input_poll)(Some(input_poll_callback));
+            (self.lifecycle.retro_set_input_state)(Some(input_state_callback));
         }
     }
 
     // Step 5: initialize the core after the frontend callbacks are installed.
     fn init(&self) {
         unsafe {
-            (self.retro_init)();
+            (self.lifecycle.retro_init)();
         }
     }
 
     // Drop path: retro_deinit lets the core clean up while its code is still loaded.
     fn deinit(&self) {
         unsafe {
-            (self.retro_deinit)();
+            (self.lifecycle.retro_deinit)();
         }
     }
 }
@@ -134,7 +159,7 @@ impl CoreSymbols {
 impl Core {
     // Rust wrappers around libretro function pointers.
     pub fn load_game(&self, info: &retro_game_info) -> Result<()> {
-        if unsafe { (self.symbols.retro_load_game)(info) } {
+        if unsafe { (self.symbols.gameplay.retro_load_game)(info) } {
             Ok(())
         } else {
             Err(anyhow!("Failed to load game"))
@@ -142,39 +167,39 @@ impl Core {
     }
 
     pub fn unload_game(&self) {
-        unsafe { (self.symbols.retro_unload_game)() };
+        unsafe { (self.symbols.gameplay.retro_unload_game)() };
     }
 
     pub fn run(&self) {
-        unsafe { (self.symbols.retro_run)() };
+        unsafe { (self.symbols.gameplay.retro_run)() };
     }
 
     pub fn reset(&self) {
-        unsafe { (self.symbols.retro_reset)() };
+        unsafe { (self.symbols.gameplay.retro_reset)() };
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     pub fn serialize_size(&self) -> usize {
-        unsafe { (self.symbols.retro_serialize_size)() }
+        unsafe { (self.symbols.gameplay.retro_serialize_size)() }
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     pub fn serialize(&self, data: &mut [u8]) -> bool {
-        unsafe { (self.symbols.retro_serialize)(data.as_mut_ptr() as *mut c_void, data.len()) }
+        unsafe { (self.symbols.gameplay.retro_serialize)(data.as_mut_ptr() as *mut c_void, data.len()) }
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     pub fn unserialize(&self, data: &[u8]) -> bool {
-        unsafe { (self.symbols.retro_unserialize)(data.as_ptr() as *const c_void, data.len()) }
+        unsafe { (self.symbols.gameplay.retro_unserialize)(data.as_ptr() as *const c_void, data.len()) }
     }
 
     pub fn memory_region(&self, id: c_uint) -> Option<(*mut u8, usize)> {
-        let size = unsafe { (self.symbols.retro_get_memory_size)(id) };
+        let size = unsafe { (self.symbols.gameplay.retro_get_memory_size)(id) };
         if size == 0 {
             return None;
         }
 
-        let data = unsafe { (self.symbols.retro_get_memory_data)(id) };
+        let data = unsafe { (self.symbols.gameplay.retro_get_memory_data)(id) };
         if data.is_null() {
             return None;
         }
@@ -197,22 +222,17 @@ impl Core {
                 sample_rate: 0.0,
             },
         };
-        unsafe { (self.symbols.retro_get_system_av_info)(&mut info) };
+        unsafe { (self.symbols.lifecycle.retro_get_system_av_info)(&mut info) };
         info
     }
 
     pub fn get_system_info(&self) -> CoreInfo {
         let mut info = retro_system_info {
-            library_name: ptr::null(),
-            library_version: ptr::null(),
-            valid_extensions: ptr::null(),
-            need_fullpath: false,
-            block_extract: false,
+            library_name: ptr::null(), library_version: ptr::null(),
+            valid_extensions: ptr::null(), need_fullpath: false, block_extract: false,
         };
-
         unsafe {
-            (self.symbols.retro_get_system_info)(&mut info);
-
+            (self.symbols.lifecycle.retro_get_system_info)(&mut info);
             CoreInfo {
                 library_name: c_string(info.library_name),
                 library_version: c_string(info.library_version),

@@ -13,28 +13,17 @@ use crate::scale::ScaleRect;
 pub fn scale_rgb565_to_xrgb8888(
     frame: &CapturedFrame,
     output: &mut [u32],
-    output_width: u32,
-    output_height: u32,
+    w: u32,
+    h: u32,
     rect: ScaleRect,
 ) -> Result<()> {
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
-    validate_scaled_u32_output(output, output_width, output_height, rect)?;
+    validate_scaled_u32_output(output, w, h, rect)?;
     output.fill(0);
-
-    for_each_scaled_pixel(
-        frame,
-        RGB565_BYTES_PER_PIXEL,
-        output_width,
-        output_height,
-        rect,
-        false,
-        false,
-        |source_start, output_index| {
-            let [r, g, b] = rgb565_to_rgb(&frame.data[source_start..source_start + 2]);
-            output[output_index] = pack_xrgb8888(r, g, b);
-        },
-    );
-
+    for_each_scaled_pixel(frame, RGB565_BYTES_PER_PIXEL, w, rect, |src, out| {
+        let [r, g, b] = rgb565_to_rgb(&frame.data[src..src + 2]);
+        output[out] = pack_xrgb8888(r, g, b);
+    });
     Ok(())
 }
 
@@ -42,28 +31,17 @@ pub fn scale_rgb565_to_xrgb8888(
 pub fn scale_xrgb8888_to_xrgb8888(
     frame: &CapturedFrame,
     output: &mut [u32],
-    output_width: u32,
-    output_height: u32,
+    w: u32,
+    h: u32,
     rect: ScaleRect,
 ) -> Result<()> {
     validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
-    validate_scaled_u32_output(output, output_width, output_height, rect)?;
+    validate_scaled_u32_output(output, w, h, rect)?;
     output.fill(0);
-
-    for_each_scaled_pixel(
-        frame,
-        XRGB8888_BYTES_PER_PIXEL,
-        output_width,
-        output_height,
-        rect,
-        false,
-        false,
-        |source_start, output_index| {
-            let bytes = &frame.data[source_start..source_start + XRGB8888_BYTES_PER_PIXEL];
-            output[output_index] = pack_xrgb8888(bytes[2], bytes[1], bytes[0]);
-        },
-    );
-
+    for_each_scaled_pixel(frame, XRGB8888_BYTES_PER_PIXEL, w, rect, |src, out| {
+        let bytes = &frame.data[src..src + XRGB8888_BYTES_PER_PIXEL];
+        output[out] = pack_xrgb8888(bytes[2], bytes[1], bytes[0]);
+    });
     Ok(())
 }
 
@@ -179,34 +157,16 @@ pub fn scale_xrgb8888_to_bgra8888(frame: &CapturedFrame, output: &mut [u8], outp
     Ok(())
 }
 #[cfg(feature = "simulator")]
-fn for_each_scaled_pixel<F>(
-    frame: &CapturedFrame,
-    bytes_per_pixel: usize,
-    output_width: u32,
-    output_height: u32,
-    rect: ScaleRect,
-    flip_x: bool,
-    flip_y: bool,
-    mut write: F,
-) where
-    F: FnMut(usize, usize),
-{
+fn for_each_scaled_pixel<F>(frame: &CapturedFrame, bpp: usize, out_w: u32, rect: ScaleRect, mut write: F)
+where F: FnMut(usize, usize) {
     for dst_y in 0..rect.height {
         let src_y = dst_y as u64 * frame.height as u64 / rect.height as u64;
+        let y_pitch = src_y as usize * frame.pitch;
+        let out_y_pitch = (rect.y + dst_y) as usize * out_w as usize;
         for dst_x in 0..rect.width {
             let src_x = dst_x as u64 * frame.width as u64 / rect.width as u64;
-            let source_start = src_y as usize * frame.pitch + src_x as usize * bytes_per_pixel;
-            let output_x = if flip_x {
-                rect.x + rect.width - 1 - dst_x
-            } else {
-                rect.x + dst_x
-            };
-            let output_y = if flip_y {
-                output_height - 1 - (rect.y + dst_y)
-            } else {
-                rect.y + dst_y
-            };
-            let output_index = output_y as usize * output_width as usize + output_x as usize;
+            let source_start = y_pitch + src_x as usize * bpp;
+            let output_index = out_y_pitch + (rect.x + dst_x) as usize;
             write(source_start, output_index);
         }
     }
@@ -220,15 +180,10 @@ fn validate_scaled_u32_output(
     rect: ScaleRect,
 ) -> Result<()> {
     validate_scaled_rect(output_width, output_height, rect)?;
-    let expected_len = output_width as usize * output_height as usize;
-    if output.len() < expected_len {
-        return Err(anyhow!(
-            "Output buffer has {} pixels, expected at least {}",
-            output.len(),
-            expected_len
-        ));
+    let expected = output_width as usize * output_height as usize;
+    if output.len() < expected {
+        return Err(anyhow!("Output buffer has {} pixels, expected at least {}", output.len(), expected));
     }
-
     Ok(())
 }
 
@@ -244,13 +199,8 @@ fn validate_scaled_byte_output(
     validate_scaled_rect(output_width, output_height, rect)?;
     let expected_len = output_pitch * output_height as usize;
     if output.len() < expected_len {
-        return Err(anyhow!(
-            "Destination buffer has {} bytes, expected at least {}",
-            output.len(),
-            expected_len
-        ));
+        return Err(anyhow!("Destination buffer has {} bytes, expected at least {}", output.len(), expected_len));
     }
-
     Ok(())
 }
 
@@ -261,7 +211,6 @@ fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) 
     if rect.x + rect.width > output_width || rect.y + rect.height > output_height {
         return Err(anyhow!("Scale destination rect exceeds output bounds"));
     }
-
     Ok(())
 }
 

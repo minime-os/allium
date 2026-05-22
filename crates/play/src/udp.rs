@@ -38,31 +38,35 @@ pub async fn run_command_server(
     let socket = UdpSocket::bind(RETROARCH_UDP_SOCKET).await?;
     let mut buf = [0u8; 256];
     debug!("Play UDP command server bound at {}", RETROARCH_UDP_SOCKET);
+    while process_next_datagram(&socket, &mut buf, &tx, &state).await? {}
+    Ok(())
+}
 
-    loop {
-        let (len, peer) = socket.recv_from(&mut buf).await?;
-        let raw = String::from_utf8_lossy(&buf[..len]);
-        let command = match RetroArchCommand::from_str(raw.trim()) {
-            Ok(command) => command,
-            Err(err) => {
-                warn!("Ignoring invalid UDP command {:?}: {}", raw, err);
-                continue;
-            }
-        };
-
-        if let Some(reply) = reply_for_command(&command, &state) {
-            socket.send_to(reply.as_bytes(), peer).await?;
-            continue;
-        }
-
-        if let Some(event) = ControlEvent::from_retroarch_command(command)
-            && tx.send(event).is_err()
-        {
-            break;
+fn parse_udp_command(raw: &str) -> Option<RetroArchCommand> {
+    match RetroArchCommand::from_str(raw.trim()) {
+        Ok(command) => Some(command),
+        Err(err) => {
+            warn!("Ignoring invalid UDP command {:?}: {}", raw, err);
+            None
         }
     }
+}
 
-    Ok(())
+async fn process_next_datagram(
+    socket: &UdpSocket,
+    buf: &mut [u8; 256],
+    tx: &UnboundedSender<ControlEvent>,
+    state: &CommandState,
+) -> Result<bool> {
+    let (len, peer) = socket.recv_from(buf).await?;
+    let raw = String::from_utf8_lossy(&buf[..len]);
+    let Some(cmd) = parse_udp_command(&raw) else { return Ok(true); };
+    if let Some(reply) = reply_for_command(&cmd, state) {
+        socket.send_to(reply.as_bytes(), peer).await?;
+    } else if let Some(ev) = ControlEvent::from_retroarch_command(cmd) {
+        return Ok(tx.send(ev).is_ok());
+    }
+    Ok(true)
 }
 
 fn reply_for_command(command: &RetroArchCommand, state: &CommandState) -> Option<String> {

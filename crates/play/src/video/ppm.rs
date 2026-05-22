@@ -1,8 +1,20 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use std::fs;
+use std::path::Path;
 
 use super::frame::{
-    CapturedFrame, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb, validate_frame,
+    CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb, validate_frame,
 };
+
+pub fn dump_frame(path: &Path, frame: &CapturedFrame, format: Option<VideoFrameFormat>) -> Result<()> {
+    let ppm_data = match format {
+        Some(VideoFrameFormat::Rgb565) => encode_rgb565(frame)?,
+        Some(VideoFrameFormat::Xrgb8888) => encode_xrgb8888(frame)?,
+        None => return Err(anyhow!("Frame dump requires a supported pixel format")),
+    };
+    fs::write(path, ppm_data)?;
+    Ok(())
+}
 
 pub fn encode_rgb565(frame: &CapturedFrame) -> Result<Vec<u8>> {
     encode_ppm(frame, RGB565_BYTES_PER_PIXEL, |bytes| rgb565_to_rgb(bytes))

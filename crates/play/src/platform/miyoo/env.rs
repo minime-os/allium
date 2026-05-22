@@ -112,12 +112,9 @@ fn block_libpadsp_preload() {
 // Locate process IDs to examine their active memory map bindings.
 fn find_pid_by_name(name: &str) -> Option<u32> {
     let proc_dir = fs::read_dir("/proc").ok()?;
-    for entry in proc_dir.flatten() {
-        if let Some(pid) = get_pid_if_name_matches(&entry.path(), name) {
-            return Some(pid);
-        }
-    }
-    None
+    proc_dir
+        .flatten()
+        .find_map(|entry| get_pid_if_name_matches(&entry.path(), name))
 }
 
 // Parse the system executable command identifier to identify targeted processes.

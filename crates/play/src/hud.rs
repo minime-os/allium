@@ -76,6 +76,14 @@ impl HudState {
     #[cfg(not(target_os = "linux"))]
     fn update_cpu_usage(&mut self, _elapsed_secs: f64) {}
 
+    fn format_hud_texts(&self, width: u32, height: u32, scale: u32, rect: &ScaleRect) -> (String, String, String, String) {
+        let tl = format!("{}x{} {}x", width, height, scale);
+        let tr = format!("{},{} {}x{}", rect.x, rect.y, width * scale, height * scale);
+        let bl = format!("{:.1}/{:.1} {}%", self.fps_val, self.cpu_val, self.use_val as i32);
+        let br = format!("{}x{}", rect.width, rect.height);
+        (tl, tr, bl, br)
+    }
+
     pub fn draw(
         &self,
         data: &mut [u8],
@@ -89,10 +97,7 @@ impl HudState {
         let rect = calculate_scale_rect(scale_mode, width, height, aspect_ratio, 640, 480)
             .unwrap_or(ScaleRect { x: 0, y: 0, width: 640, height: 480 });
         let scale = (640 / width).min(480 / height).max(1);
-        let tl = format!("{}x{} {}x", width, height, scale);
-        let tr = format!("{},{} {}x{}", rect.x, rect.y, width * scale, height * scale);
-        let bl = format!("{:.1}/{:.1} {}%", self.fps_val, self.cpu_val, self.use_val as i32);
-        let br = format!("{}x{}", rect.width, rect.height);
+        let (tl, tr, bl, br) = self.format_hud_texts(width, height, scale, &rect);
         
         crate::video::hud::blit_text(&tl, 2, 2, data, pitch, width, height, format);
         crate::video::hud::blit_text(&tr, -2, 2, data, pitch, width, height, format);

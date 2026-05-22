@@ -21,16 +21,10 @@ pub fn load_sram(core: &Core, paths: &PlayPaths) -> Result<()> {
 
     let sram = fs::read(&path)?;
     if sram.len() != size {
-        warn!(
-            "SRAM size mismatch for {:?}: file={}, core={}",
-            path,
-            sram.len(),
-            size
-        );
+        warn!("SRAM size mismatch for {path:?}: file={}, core={size}", sram.len());
     }
-    let copy_len = sram.len().min(size);
     unsafe {
-        ptr::copy_nonoverlapping(sram.as_ptr(), data, copy_len);
+        ptr::copy_nonoverlapping(sram.as_ptr(), data, sram.len().min(size));
     }
     info!("Loaded SRAM from {:?}", path);
     Ok(())
