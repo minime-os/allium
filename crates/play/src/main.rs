@@ -14,10 +14,8 @@ mod save;
 mod hud;
 mod video;
 mod session;
-mod timing;
-mod udp;
 mod unzip;
-mod dump;
+mod debug;
 
 
 use anyhow::Result;

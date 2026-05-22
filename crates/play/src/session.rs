@@ -16,11 +16,9 @@ use crate::libretro_sys::*;
 use crate::paths::PlayPaths;
 use crate::save;
 use crate::video::ScaleMode;
-use crate::udp::CommandState;
 use crate::video::{CapturedFrame, VideoFrameFormat};
 use crate::platform::{DefaultPlatform, EmulationPlatform, VideoBackend, InputBackend};
 use crate::unzip;
-use crate::timing::{self, LoopWait};
 use anyhow::{Result, anyhow};
 use log::{debug, info, warn};
 use std::ffi::CString;
@@ -29,6 +27,27 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+// UDP command state shared between the session and the async command server.
+struct CommandState {
+    state_slot: std::sync::atomic::AtomicI8,
+}
+
+impl CommandState {
+    fn new(state_slot: i8) -> Arc<Self> {
+        Arc::new(Self {
+            state_slot: std::sync::atomic::AtomicI8::new(state_slot),
+        })
+    }
+
+    fn set_state_slot(&self, state_slot: i8) {
+        self.state_slot.store(state_slot, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn state_slot(&self) -> i8 {
+        self.state_slot.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
 
 // One session owns the mutable runtime state so callbacks have one place to land.
 pub struct PlaySession {
@@ -229,7 +248,7 @@ impl PlaySession {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let state = Arc::clone(&self.command_state);
         let srv = tokio::spawn(async move {
-            if let Err(err) = crate::udp::run_command_server(tx, state).await {
+            if let Err(err) = run_command_server(tx, state).await {
                 warn!("Play UDP command server stopped: {}", err);
             }
         });
@@ -317,7 +336,7 @@ impl PlaySession {
     ) -> Result<Option<&'static str>> {
         let result = {
             let mut shutdown = std::pin::pin!(drv.wait_for_shutdown());
-            timing::wait_for_next_frame_or_control(deadline, ctrl_c, &mut shutdown, rx).await
+            wait_for_next_frame_or_control(deadline, ctrl_c, &mut shutdown, rx).await
         };
         match result {
             LoopWait::Frame => Ok(None),
@@ -358,7 +377,7 @@ impl PlaySession {
     async fn start_main_loop(&mut self) -> Result<()> {
         let av = self.av_info.as_ref().unwrap();
         let fps = av.timing.fps;
-        let frame_interval = timing::frame_interval(fps)?;
+        let frame_interval = frame_interval(fps)?;
         let sample_rate = validate_sample_rate(av.timing.sample_rate)?;
         let base_width = av.geometry.base_width;
         let base_height = av.geometry.base_height;
@@ -438,14 +457,67 @@ impl PlaySession {
             .captured_frame
             .as_ref()
             .ok_or_else(|| anyhow!("No frame captured"))?;
-        crate::dump::dump_frame(path, frame, self.pixel_format)?;
+        crate::debug::dump_frame(path, frame, self.pixel_format)?;
         info!("Frame dumped to {:?}", path);
         Ok(())
     }
 
-    /// Applies a specific execution control event mutation onto this session.
+    /// Applies a control event mutation directly onto this session.
     fn apply_control_event(&mut self, event: ControlEvent) -> Result<()> {
-        event.apply(self)
+        match event {
+            ControlEvent::SaveState => self.core_save(self.state_slot),
+            ControlEvent::LoadState => self.core_load(self.state_slot),
+            ControlEvent::SaveStateSlot(slot) => {
+                self.select_state_slot(slot)?;
+                self.core_save(slot)
+            }
+            ControlEvent::LoadStateSlot(slot) => {
+                self.select_state_slot(slot)?;
+                self.core_load(slot)
+            }
+            ControlEvent::SelectStateSlot(slot) => self.select_state_slot(slot),
+            ControlEvent::StateSlotPlus => self.select_state_slot((self.state_slot + 1).min(9)),
+            ControlEvent::StateSlotMinus => self.select_state_slot((self.state_slot - 1).max(-1)),
+            ControlEvent::SetPaused(paused) => { self.paused = paused; Ok(()) }
+            ControlEvent::TogglePaused => { self.paused = !self.paused; Ok(()) }
+            ControlEvent::ToggleFastForward => {
+                self.fast_forwarding = !self.fast_forwarding;
+                self.set_audio_muted(self.fast_forwarding);
+                Ok(())
+            }
+            ControlEvent::SetFastForward(enabled) => {
+                self.fast_forwarding = enabled;
+                self.set_audio_muted(enabled);
+                Ok(())
+            }
+            ControlEvent::Reset => {
+                let core = self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
+                core.reset();
+                Ok(())
+            }
+            ControlEvent::Quit => { self.should_quit = true; Ok(()) }
+            ControlEvent::CycleScale => {
+                self.scale_mode = self.scale_mode.next();
+                info!("Selected scale mode: {:?}", self.scale_mode);
+                Ok(())
+            }
+        }
+    }
+
+    fn core_save(&self, slot: i8) -> Result<()> {
+        let core = self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
+        save::save_state_slot(core, &self.paths, slot)
+    }
+
+    fn core_load(&self, slot: i8) -> Result<()> {
+        let core = self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
+        save::load_state_slot(core, &self.paths, slot)
+    }
+
+    fn set_audio_muted(&mut self, muted: bool) {
+        if let Some(producer) = &mut self.audio_producer {
+            producer.set_muted(muted);
+        }
     }
 }
 
@@ -453,6 +525,90 @@ impl Drop for PlaySession {
     /// Assures resources and open games are unloaded correctly on scope exit.
     fn drop(&mut self) {
         self.unload_game();
+    }
+}
+
+// ---- Frame timing helpers (moved from timing.rs) ----
+
+enum LoopWait {
+    Frame,
+    Signal,
+    Control(ControlEvent),
+}
+
+fn frame_interval(fps: f64) -> Result<Duration> {
+    if !fps.is_finite() || fps <= 0.0 {
+        return Err(anyhow!("Core reported invalid FPS: {}", fps));
+    }
+    Ok(Duration::from_secs_f64(1.0 / fps))
+}
+
+async fn wait_for_next_frame_or_control<F, S>(
+    deadline: tokio::time::Instant,
+    ctrl_c: &mut std::pin::Pin<&mut F>,
+    shutdown: &mut std::pin::Pin<&mut S>,
+    control_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>,
+) -> LoopWait
+where
+    F: std::future::Future<Output = std::io::Result<()>>,
+    S: std::future::Future<Output = ()>,
+{
+    tokio::select! {
+        _ = tokio::time::sleep_until(deadline) => LoopWait::Frame,
+        _ = ctrl_c.as_mut() => LoopWait::Signal,
+        _ = shutdown.as_mut() => LoopWait::Signal,
+        event = control_rx.recv() => event.map_or(LoopWait::Signal, LoopWait::Control),
+    }
+}
+
+// ---- UDP command server (moved from udp.rs) ----
+
+async fn run_command_server(
+    tx: tokio::sync::mpsc::UnboundedSender<ControlEvent>,
+    state: Arc<CommandState>,
+) -> Result<()> {
+    let socket = tokio::net::UdpSocket::bind(common::constants::RETROARCH_UDP_SOCKET).await?;
+    let mut buf = [0u8; 256];
+    debug!("Play UDP command server bound at {}", common::constants::RETROARCH_UDP_SOCKET);
+    while process_next_datagram(&socket, &mut buf, &tx, &state).await? {}
+    Ok(())
+}
+
+fn parse_udp_command(raw: &str) -> Option<common::retroarch::RetroArchCommand> {
+    match std::str::FromStr::from_str(raw.trim()) {
+        Ok(command) => Some(command),
+        Err(err) => {
+            warn!("Ignoring invalid UDP command {:?}: {}", raw, err);
+            None
+        }
+    }
+}
+
+async fn process_next_datagram(
+    socket: &tokio::net::UdpSocket,
+    buf: &mut [u8; 256],
+    tx: &tokio::sync::mpsc::UnboundedSender<ControlEvent>,
+    state: &CommandState,
+) -> Result<bool> {
+    let (len, peer) = socket.recv_from(buf).await?;
+    let raw = String::from_utf8_lossy(&buf[..len]);
+    let Some(cmd) = parse_udp_command(&raw) else { return Ok(true); };
+    if let Some(reply) = reply_for_command(&cmd, state) {
+        socket.send_to(reply.as_bytes(), peer).await?;
+    } else if let Some(ev) = ControlEvent::from_retroarch_command(cmd) {
+        return Ok(tx.send(ev).is_ok());
+    }
+    Ok(true)
+}
+
+fn reply_for_command(command: &common::retroarch::RetroArchCommand, state: &CommandState) -> Option<String> {
+    use common::retroarch::RetroArchCommand;
+    match command {
+        RetroArchCommand::GetInfo => Some(format!("GET_INFO 0 0 {}", state.state_slot())),
+        RetroArchCommand::GetDiskCount => Some("GET_DISK_COUNT 0".to_string()),
+        RetroArchCommand::GetDiskSlot => Some("GET_DISK_SLOT 0".to_string()),
+        RetroArchCommand::GetStateSlot => Some(format!("GET_STATE_SLOT {}", state.state_slot())),
+        _ => None,
     }
 }
 
@@ -538,6 +694,33 @@ mod tests {
 
         assert_eq!(frame.data.as_ptr(), first_ptr);
         assert_eq!(frame.data, second);
+    }
+
+    #[test]
+    fn frame_interval_uses_core_fps() {
+        let interval = frame_interval(60.0).unwrap();
+        assert_eq!(interval, Duration::from_nanos(16_666_667));
+    }
+
+    #[test]
+    fn frame_interval_rejects_zero_fps() {
+        let err = frame_interval(0.0).unwrap_err();
+        assert_eq!(err.to_string(), "Core reported invalid FPS: 0");
+    }
+
+    #[test]
+    fn frame_interval_rejects_nan_fps() {
+        let err = frame_interval(f64::NAN).unwrap_err();
+        assert_eq!(err.to_string(), "Core reported invalid FPS: NaN");
+    }
+
+    #[test]
+    fn get_info_reply_matches_menu_parser_shape() {
+        let state = CommandState::new(-1);
+        assert_eq!(
+            reply_for_command(&common::retroarch::RetroArchCommand::GetInfo, &state),
+            Some("GET_INFO 0 0 -1".to_string())
+        );
     }
 }
 
