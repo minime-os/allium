@@ -10,7 +10,7 @@ use crate::callbacks::{self, LibretroCallbacks};
 use crate::config::PlayConfig;
 use crate::control::ControlEvent;
 use crate::core::Core;
-use crate::hud;
+use crate::diagnostics;
 use crate::input::JoypadState;
 use crate::libretro_sys::*;
 use crate::paths::PlayPaths;
@@ -71,7 +71,7 @@ pub struct PlaySession {
     pub(crate) command_state: Arc<CommandState>,
     pub(crate) system_dir: CString,
     pub(crate) save_dir: CString,
-    pub(crate) hud_state: hud::HudState,
+    pub(crate) hud_state: diagnostics::HudState,
     pub(crate) host_cpu: f64,
 }
 
@@ -89,7 +89,7 @@ impl PlaySession {
             audio_producer: None, joypad_state: JoypadState::new(), fast_forwarding: false,
             paused: false, should_quit: false, scale_mode: scale, state_slot: 0,
             command_state: CommandState::new(0), system_dir: sys_dir, save_dir: sav_dir,
-            hud_state: hud::HudState::new(hud),
+            hud_state: diagnostics::HudState::new(hud),
             host_cpu: 0.0,
         }
     }
@@ -105,27 +105,8 @@ impl PlaySession {
         Self::create_instance(args, paths, config, scale, sys_dir, sav_dir, hud)
     }
 
-    /// Sets the global callback target to this session, runs the main execution flow, and cleans up the callback target.
-    pub async fn run(&mut self) -> Result<()> {
-        info!("Initializing PlaySession for core: {}", self.paths.core_id);
-        info!("ROM path: {:?}", self.paths.rom);
-
-        unsafe {
-            let ptr = self as *mut PlaySession;
-            callbacks::set_handler(ptr);
-        }
-
-        let result = self.execute_session().await;
-
-        unsafe {
-            callbacks::clear_handler();
-        }
-
-        result
-    }
-
     /// Stabilizes the initial emulated frame through warmup before dumping it.
-    fn warm_up_and_dump(&self) -> Result<()> {
+    pub(crate) fn warm_up_and_dump(&self) -> Result<()> {
         info!("Running {} warmup frames for dump...", DUMP_WARMUP_FRAMES);
         if let Some(core) = &self.core {
             for _ in 0..DUMP_WARMUP_FRAMES {
@@ -135,26 +116,8 @@ impl PlaySession {
         self.dump_captured_frame()
     }
 
-    /// Runs the linear load-and-run sequence for the emulator core and content.
-    async fn execute_session(&mut self) -> Result<()> {
-        info!("execute_session: loading core...");
-        self.load_core()?;
-        info!("execute_session: loading game...");
-        self.load_game()?;
-        info!("execute_session: entering run loop...");
-
-        if self.args.dump_frame.is_some() {
-            self.warm_up_and_dump()?;
-        } else {
-            self.start_main_loop().await?;
-        }
-
-        self.unload_game();
-        Ok(())
-    }
-
     /// Dynamically loads the libretro shared library core and prints version information.
-    fn load_core(&mut self) -> Result<()> {
+    pub(crate) fn load_core(&mut self) -> Result<()> {
         info!("Loading core from {:?}", self.paths.core_path);
         let core = unsafe { Core::load(&self.paths.core_path)? };
         let info = core.get_system_info();
@@ -224,7 +187,7 @@ impl PlaySession {
     }
 
     /// Loads the active ROM, parsing compressed archives if necessary, loading save files, and resolving AV metadata.
-    fn load_game(&mut self) -> Result<()> {
+    pub(crate) fn load_game(&mut self) -> Result<()> {
         self.prepare_directories()?;
         let sys_info = self
             .core
@@ -374,7 +337,7 @@ impl PlaySession {
     }
 
     /// Spawns background I/O tasks and loops emulated frames indefinitely, respecting the target core framerate.
-    async fn start_main_loop(&mut self) -> Result<()> {
+    pub(crate) async fn start_main_loop(&mut self) -> Result<()> {
         let av = self.av_info.as_ref().unwrap();
         let fps = av.timing.fps;
         let frame_interval = frame_interval(fps)?;
@@ -403,7 +366,7 @@ impl PlaySession {
     }
 
     /// Unloads the core game cleanly, triggering an autosave write and saving emulated SRAM cartridge contents.
-    fn unload_game(&mut self) {
+    pub(crate) fn unload_game(&mut self) {
         if let Some(core) = &self.core {
             if self.config.autosave {
                 if let Err(err) = save::save_state_slot(core, &self.paths, -1) {
@@ -457,7 +420,7 @@ impl PlaySession {
             .captured_frame
             .as_ref()
             .ok_or_else(|| anyhow!("No frame captured"))?;
-        crate::debug::dump_frame(path, frame, self.pixel_format)?;
+        crate::diagnostics::dump_frame(path, frame, self.pixel_format)?;
         info!("Frame dumped to {:?}", path);
         Ok(())
     }

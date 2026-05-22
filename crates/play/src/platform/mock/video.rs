@@ -5,7 +5,7 @@ use crate::platform::VideoBackend;
 use crate::video::ScaleMode;
 use crate::video::{CapturedFrame, VideoFrameFormat};
 use crate::platform::VideoPresentResult;
-use crate::debug::dump_frame;
+use crate::diagnostics::dump_frame;
 use anyhow::{anyhow, Result};
 use std::path::Path;
 
