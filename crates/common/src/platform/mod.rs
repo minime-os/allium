@@ -42,6 +42,10 @@ pub trait Platform {
 
     async fn poll(&mut self) -> KeyEvent;
 
+    fn try_poll(&mut self) -> Option<KeyEvent> {
+        None
+    }
+
     fn shutdown(&self) -> Result<()>;
 
     fn suspend(&self) -> Result<Self::SuspendContext>;

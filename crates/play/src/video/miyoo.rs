@@ -14,7 +14,6 @@ const BGRA8888_BITS_PER_PIXEL: u32 = 32;
 
 pub struct MiyooVideo {
     fb: Framebuffer,
-    back_buffer: Vec<u8>,
     pitch: usize,
     height: u32,
     format: MiyooFramebufferFormat,
@@ -34,7 +33,7 @@ impl VideoBackend for MiyooVideo {
         aspect_ratio: f32,
         scale: ScaleMode,
     ) -> Result<Self> {
-        let fb = Framebuffer::new(FRAMEBUFFER_PATH)?;
+        let mut fb = Framebuffer::new(FRAMEBUFFER_PATH)?;
         let format = match fb.var_screen_info.bits_per_pixel {
             RGB565_BITS_PER_PIXEL => MiyooFramebufferFormat::Rgb565,
             BGRA8888_BITS_PER_PIXEL => MiyooFramebufferFormat::Bgra8888,
@@ -62,8 +61,10 @@ impl VideoBackend for MiyooVideo {
             width, height, pitch, fb.var_screen_info.bits_per_pixel
         );
 
+        // Clear the physical framebuffer once on startup
+        fb.frame.fill(0);
+
         Ok(Self {
-            back_buffer: vec![0u8; fb.frame.len()],
             fb,
             pitch,
             height,
@@ -80,7 +81,7 @@ impl VideoBackend for MiyooVideo {
         match (self.format, pixel_format) {
             (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Rgb565) => scale_rgb565_to_rgb565(
                 frame,
-                &mut self.back_buffer,
+                &mut self.fb.frame,
                 self.pitch,
                 self.height,
                 self.rect,
@@ -93,7 +94,7 @@ impl VideoBackend for MiyooVideo {
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Rgb565) => {
                 scale_rgb565_to_bgra8888(
                     frame,
-                    &mut self.back_buffer,
+                    &mut self.fb.frame,
                     self.pitch,
                     self.height,
                     self.rect,
@@ -102,14 +103,13 @@ impl VideoBackend for MiyooVideo {
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Xrgb8888) => {
                 scale_xrgb8888_to_bgra8888(
                     frame,
-                    &mut self.back_buffer,
+                    &mut self.fb.frame,
                     self.pitch,
                     self.height,
                     self.rect,
                 )?
             }
         };
-        self.fb.frame.copy_from_slice(&self.back_buffer);
         Ok(VideoPresentResult::default())
     }
 
@@ -128,6 +128,8 @@ impl VideoBackend for MiyooVideo {
             self.width(),
             self.height,
         )?;
+        // Clear the physical framebuffer once when scaling changes to avoid ghost bars
+        self.fb.frame.fill(0);
         Ok(())
     }
 }

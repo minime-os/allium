@@ -820,6 +820,17 @@ Add MinArch-style audio prebuffering and drift correction for normal playback. S
 
 ---
 
+## Miyoo Mini Plus Performance Optimization [DONE]
+
+**Goal.** Boost play performance on Miyoo Mini Plus (dual-core 1.2GHz ARM Cortex-A7) from 16-17 FPS to a locked, fluid 60 FPS.
+
+### Optimizations Implemented
+1. **Synchronous Input Polling**: Eliminated expensive `tokio::time::timeout(1ms, ...)` futures by introducing a synchronous non-blocking `try_poll` API that queries the underlying evdev event stream with `.now_or_never()`. This resolved CPU timer thrashing and scheduler starvation.
+2. **Direct Framebuffer Presentation**: Bypassed intermediate `back_buffer` vector allocation and full-screen clears every frame, outputting scaled game frames directly into the `/dev/fb0` memory-mapped framebuffer. Screen clearing is handled once on startup and scale changes to preserve black letterbox borders.
+3. **Division-Free 16.16 Fixed-Point Scalers**: Swapped out division operations in the scaling loops with 16.16 fixed-point step calculations. Color conversions are accelerated using bitwise shifts and direct 32-bit word store operations to bypass channel-by-channel memory writes.
+
+---
+
 ## Final notes
 
 - This plan was written after grilling the design tree exhaustively. If you find a stage feels wrong as you start it, that's a signal — re-grill that stage's slice before pushing through.

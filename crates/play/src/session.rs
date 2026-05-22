@@ -656,9 +656,7 @@ impl PlaySession {
 
     #[cfg(feature = "miyoo")]
     async fn poll_platform_input(&mut self, platform: &mut DefaultPlatform) {
-        while let Ok(key_event) =
-            tokio::time::timeout(Duration::from_millis(1), platform.poll()).await
-        {
+        while let Some(key_event) = platform.try_poll() {
             self.joypad_state.apply(key_event);
         }
     }

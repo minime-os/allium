@@ -79,6 +79,39 @@ impl EvdevKeys {
             }
         }
     }
+
+    pub fn try_poll(&mut self) -> Option<KeyEvent> {
+        use futures::FutureExt;
+
+        if let Some(lid_event) = self.lid_switch_poller.as_mut().and_then(|lid| lid.poll()) {
+            info!("Lid event detected: {:?}", lid_event);
+            return Some(lid_event);
+        }
+
+        while let Some(result) = self.events.next_event().now_or_never() {
+            let event = match result {
+                Ok(ev) => ev,
+                Err(err) => {
+                    log::warn!("Evdev event read error: {}", err);
+                    return None;
+                }
+            };
+            if event.event_type() == EventType::KEY {
+                let key = event.code();
+                let key: Key = key.into();
+                if event.timestamp().elapsed().unwrap() > MAXIMUM_FRAME_TIME {
+                    continue;
+                }
+                return Some(match event.value() {
+                    0 => KeyEvent::Released(key),
+                    1 => KeyEvent::Pressed(key),
+                    2 => KeyEvent::Autorepeat(key),
+                    _ => unreachable!(),
+                });
+            }
+        }
+        None
+    }
 }
 
 struct LidSwitchPoller {

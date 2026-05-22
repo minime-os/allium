@@ -69,6 +69,10 @@ impl Platform for MiyooPlatform {
         self.keys.poll().await
     }
 
+    fn try_poll(&mut self) -> Option<KeyEvent> {
+        self.keys.try_poll()
+    }
+
     fn display(&mut self) -> Result<FramebufferDisplay> {
         FramebufferDisplay::new()
     }
