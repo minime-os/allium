@@ -20,36 +20,20 @@ pub(crate) enum LoopWait {
     Control(ControlEvent),
 }
 
-#[cfg(unix)]
-pub(crate) async fn wait_for_next_frame_or_control<F>(
+pub(crate) async fn wait_for_next_frame_or_control<F, S>(
     deadline: tokio::time::Instant,
     ctrl_c: &mut std::pin::Pin<&mut F>,
-    sigterm: &mut tokio::signal::unix::Signal,
+    shutdown: &mut std::pin::Pin<&mut S>,
     control_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>,
 ) -> LoopWait
 where
     F: std::future::Future<Output = std::io::Result<()>>,
+    S: std::future::Future<Output = ()>,
 {
     tokio::select! {
         _ = tokio::time::sleep_until(deadline) => LoopWait::Frame,
         _ = ctrl_c.as_mut() => LoopWait::Signal,
-        _ = sigterm.recv() => LoopWait::Signal,
-        event = control_rx.recv() => event.map_or(LoopWait::Signal, LoopWait::Control),
-    }
-}
-
-#[cfg(not(unix))]
-pub(crate) async fn wait_for_next_frame_or_control<F>(
-    deadline: tokio::time::Instant,
-    ctrl_c: &mut std::pin::Pin<&mut F>,
-    control_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>,
-) -> LoopWait
-where
-    F: std::future::Future<Output = std::io::Result<()>>,
-{
-    tokio::select! {
-        _ = tokio::time::sleep_until(deadline) => LoopWait::Frame,
-        _ = ctrl_c.as_mut() => LoopWait::Signal,
+        _ = shutdown.as_mut() => LoopWait::Signal,
         event = control_rx.recv() => event.map_or(LoopWait::Signal, LoopWait::Control),
     }
 }

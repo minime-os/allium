@@ -28,8 +28,6 @@ impl CapturedFrame {
 
 pub(crate) const RGB565_BYTES_PER_PIXEL: usize = 2;
 pub(crate) const XRGB8888_BYTES_PER_PIXEL: usize = 4;
-#[cfg(feature = "miyoo")]
-pub(crate) const BGRA8888_BYTES_PER_PIXEL: usize = 4;
 
 pub(crate) fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
     let row_bytes = frame.width as usize * bytes_per_pixel;

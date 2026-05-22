@@ -20,6 +20,7 @@ pub struct MiyooPlatform {
     audio: MiyooAudio,
     input: MiyooInput,
     stats: stats::MiyooStats,
+    signal: Option<tokio::signal::unix::Signal>,
     _guard: MiyooSystemGuard,
 }
 
@@ -55,11 +56,13 @@ impl EmulationPlatform for MiyooPlatform {
         let input = MiyooInput { platform };
         let audio = MiyooAudio::new(sample_rate, audio_consumer)?;
         let stats = stats::MiyooStats::new();
+        let signal = None;
         Ok(Self {
             video,
             audio,
             input,
             stats,
+            signal,
             _guard,
         })
     }
@@ -79,6 +82,32 @@ impl EmulationPlatform for MiyooPlatform {
     fn stats(&mut self) -> &mut dyn HostStats {
         &mut self.stats
     }
+
+    fn skip_presentation_when_paused(&self) -> bool {
+        true
+    }
+
+    async fn wait_for_shutdown(&mut self) {
+        let signal = self.signal.get_or_insert_with(|| {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("Failed to install SIGTERM handler")
+        });
+        signal.recv().await;
+    }
+}
+
+pub fn init_logging() -> Result<()> {
+    use std::fs;
+    use log::LevelFilter;
+    use simple_logger::SimpleLogger;
+    use common::constants::ALLIUM_PLAY_LOG;
+
+    let _ = fs::write("/mnt/SDCARD/.allium/logs/play_started.marker", "started");
+    let _ = common::log::init_hardware_log(&*ALLIUM_PLAY_LOG);
+    println!("--- Play starting at {} ---", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+
+    SimpleLogger::new().with_level(LevelFilter::Info).init()?;
+    Ok(())
 }
 
 fn get_core_id_from_args() -> String {

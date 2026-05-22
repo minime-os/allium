@@ -63,6 +63,19 @@ pub trait EmulationPlatform {
     fn audio(&mut self) -> &mut Self::Audio;
     fn input(&mut self) -> &mut Self::Input;
     fn stats(&mut self) -> &mut dyn HostStats;
+    fn skip_presentation_when_paused(&self) -> bool { false }
+    async fn wait_for_shutdown(&mut self) {
+        std::future::pending::<()>().await;
+    }
+}
+
+pub fn init_logging() -> Result<()> {
+    #[cfg(feature = "miyoo")]
+    return miyoo::init_logging();
+    #[cfg(feature = "simulator")]
+    return simulator::init_logging();
+    #[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+    return mock::init_logging();
 }
 
 #[cfg(feature = "miyoo")]

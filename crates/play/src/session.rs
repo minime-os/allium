@@ -21,7 +21,7 @@ use crate::video::frame::{CapturedFrame, VideoFrameFormat};
 use crate::platform::{DefaultPlatform, EmulationPlatform, VideoBackend, InputBackend};
 use crate::unzip;
 use crate::timing::{self, LoopWait};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use log::{debug, info, warn};
 use std::ffi::CString;
 use std::fs;
@@ -274,11 +274,10 @@ impl PlaySession {
 
     /// Displays the current frame buffer on the screen if paused logic allows it.
     fn present_captured_frame(&self, driver: &mut DefaultPlatform) -> Result<bool> {
-        let mut should_present = true;
-        if self.paused && cfg!(feature = "miyoo") {
-            should_present = false;
+        if self.paused && driver.skip_presentation_when_paused() {
+            return Ok(false);
         }
-        if should_present && let Some(frame) = &self.captured_frame {
+        if let Some(frame) = &self.captured_frame {
             let format = self.pixel_format.ok_or_else(|| anyhow!("No pixel format set"))?;
             if driver.video().present(frame, format)?.should_quit {
                 return Ok(true);
@@ -309,9 +308,18 @@ impl PlaySession {
         Ok(None)
     }
 
-    #[cfg(unix)]
-    async fn wait_frame(&mut self, deadline: tokio::time::Instant, ctrl_c: &mut std::pin::Pin<&mut impl std::future::Future<Output = std::io::Result<()>>>, sigterm: &mut tokio::signal::unix::Signal, rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>, drv: &mut DefaultPlatform) -> Result<Option<&'static str>> {
-        match timing::wait_for_next_frame_or_control(deadline, ctrl_c, sigterm, rx).await {
+    async fn wait_frame(
+        &mut self,
+        deadline: tokio::time::Instant,
+        ctrl_c: &mut std::pin::Pin<&mut impl std::future::Future<Output = std::io::Result<()>>>,
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>,
+        drv: &mut DefaultPlatform,
+    ) -> Result<Option<&'static str>> {
+        let result = {
+            let mut shutdown = std::pin::pin!(drv.wait_for_shutdown());
+            timing::wait_for_next_frame_or_control(deadline, ctrl_c, &mut shutdown, rx).await
+        };
+        match result {
             LoopWait::Frame => Ok(None),
             LoopWait::Signal => Ok(Some("signal received")),
             LoopWait::Control(event) => {
@@ -322,38 +330,15 @@ impl PlaySession {
         }
     }
 
-    #[cfg(not(unix))]
-    async fn wait_frame(&mut self, deadline: tokio::time::Instant, ctrl_c: &mut std::pin::Pin<&mut impl std::future::Future<Output = std::io::Result<()>>>, rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>, drv: &mut DefaultPlatform) -> Result<Option<&'static str>> {
-        match timing::wait_for_next_frame_or_control(deadline, ctrl_c, rx).await {
-            LoopWait::Frame => Ok(None),
-            LoopWait::Signal => Ok(Some("signal received")),
-            LoopWait::Control(event) => {
-                self.apply_control_event(event)?;
-                self.apply_scale(drv.video())?;
-                Ok(None)
-            }
-        }
-    }
-
-    #[cfg(unix)]
-    async fn run_emulation_loop(&mut self, rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>, drv: &mut DefaultPlatform, frames: &mut u64, next_at: &mut Instant, interval: Duration, ctrl_c: &mut std::pin::Pin<&mut impl std::future::Future<Output = std::io::Result<()>>>, sigterm: &mut tokio::signal::unix::Signal) -> Result<&'static str> {
-        loop {
-            if let Some(reason) = self.run_loop_step(rx, drv, frames, next_at, interval)? {
-                return Ok(reason);
-            }
-            if self.fast_forwarding {
-                tokio::task::yield_now().await;
-                continue;
-            }
-            let sleep = tokio::time::Instant::from_std(*next_at);
-            if let Some(r) = self.wait_frame(sleep, ctrl_c, sigterm, rx, drv).await? {
-                return Ok(r);
-            }
-        }
-    }
-
-    #[cfg(not(unix))]
-    async fn run_emulation_loop(&mut self, rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>, drv: &mut DefaultPlatform, frames: &mut u64, next_at: &mut Instant, interval: Duration, ctrl_c: &mut std::pin::Pin<&mut impl std::future::Future<Output = std::io::Result<()>>>) -> Result<&'static str> {
+    async fn run_emulation_loop(
+        &mut self,
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<ControlEvent>,
+        drv: &mut DefaultPlatform,
+        frames: &mut u64,
+        next_at: &mut Instant,
+        interval: Duration,
+        ctrl_c: &mut std::pin::Pin<&mut impl std::future::Future<Output = std::io::Result<()>>>,
+    ) -> Result<&'static str> {
         loop {
             if let Some(reason) = self.run_loop_step(rx, drv, frames, next_at, interval)? {
                 return Ok(reason);
@@ -391,10 +376,8 @@ impl PlaySession {
         let started_at = Instant::now();
         let mut next_at = started_at;
         let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
-        #[cfg(unix)]
-        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .context("Failed to install SIGTERM handler")?;
-        let reason = self.run_emulation_loop(&mut rx, &mut drv, &mut frames, &mut next_at, frame_interval, &mut ctrl_c, #[cfg(unix)] &mut sigterm).await?;
+        let reason = self.run_emulation_loop(&mut rx, &mut drv, &mut frames, &mut next_at, frame_interval, &mut ctrl_c,
+        ).await?;
         self.shutdown_loop(reason, frames, started_at, fps);
         command_server.abort();
         Ok(())

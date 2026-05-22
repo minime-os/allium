@@ -8,7 +8,6 @@ mod control;
 mod core;
 mod input;
 mod libretro_sys;
-mod logs;
 mod paths;
 mod platform;
 mod save;
@@ -27,7 +26,7 @@ use session::PlaySession;
 
 // Tokio lets the main emulation loop react to external events such as low-battery autosave.
 fn main() -> Result<()> {
-    logs::init()?;
+    platform::init_logging()?;
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()

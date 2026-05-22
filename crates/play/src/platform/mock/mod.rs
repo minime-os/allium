@@ -69,4 +69,20 @@ impl EmulationPlatform for MockPlatform {
     fn stats(&mut self) -> &mut dyn HostStats {
         &mut self.stats
     }
+
+    fn skip_presentation_when_paused(&self) -> bool {
+        false
+    }
+
+    async fn wait_for_shutdown(&mut self) {
+        std::future::pending::<()>().await;
+    }
+}
+
+pub fn init_logging() -> Result<()> {
+    use log::LevelFilter;
+    use simple_logger::SimpleLogger;
+
+    SimpleLogger::new().with_level(LevelFilter::Info).init()?;
+    Ok(())
 }
