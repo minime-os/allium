@@ -3,13 +3,13 @@
 
 use crate::platform::VideoBackend;
 use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
-use crate::video::frame::{
+use crate::frame::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
     validate_frame,
 };
 
 pub(crate) const BGRA8888_BYTES_PER_PIXEL: usize = 4;
-use crate::video::VideoPresentResult;
+use crate::platform::VideoPresentResult;
 use anyhow::{Result, anyhow};
 use framebuffer::Framebuffer;
 use log::info;

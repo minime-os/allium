@@ -3,8 +3,8 @@
 
 use crate::control::ControlEvent;
 use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
-use crate::video::frame::{CapturedFrame, VideoFrameFormat};
-use crate::video::{VideoPresentResult};
+use crate::frame::{CapturedFrame, VideoFrameFormat};
+use crate::platform::VideoPresentResult;
 use crate::platform::VideoBackend;
 use anyhow::{Context, Result, anyhow};
 use common::platform::{Key, KeyEvent, simulator::SCREEN_HEIGHT, simulator::SCREEN_WIDTH};
@@ -250,7 +250,7 @@ fn control_event_for_keycode(keycode: KeyCode) -> Option<ControlEvent> {
 // Simulator Pixel Scaling & Color Space Conversion
 // =========================================================================
 
-use crate::video::frame::{
+use crate::frame::{
     RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb, validate_frame,
 };
 

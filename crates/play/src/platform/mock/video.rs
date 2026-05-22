@@ -3,8 +3,9 @@
 
 use crate::platform::VideoBackend;
 use crate::scale::ScaleMode;
-use crate::video::frame::{CapturedFrame, VideoFrameFormat};
-use crate::video::VideoPresentResult;
+use crate::frame::{CapturedFrame, VideoFrameFormat};
+use crate::platform::VideoPresentResult;
+use crate::dump::dump_frame;
 use anyhow::{anyhow, Result};
 use std::path::Path;
 
@@ -50,6 +51,6 @@ impl MockVideo {
     pub fn dump_last_frame(&self, path: &Path) -> Result<()> {
         let frame = self.last_frame.as_ref().ok_or_else(|| anyhow!("No frame captured yet"))?;
         let format = self.last_format.ok_or_else(|| anyhow!("No frame format recorded"))?;
-        crate::video::ppm::dump_frame(path, frame, Some(format))
+        dump_frame(path, frame, Some(format))
     }
 }

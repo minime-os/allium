@@ -17,7 +17,7 @@ use crate::paths::PlayPaths;
 use crate::save;
 use crate::scale::ScaleMode;
 use crate::udp::CommandState;
-use crate::video::frame::{CapturedFrame, VideoFrameFormat};
+use crate::frame::{CapturedFrame, VideoFrameFormat};
 use crate::platform::{DefaultPlatform, EmulationPlatform, VideoBackend, InputBackend};
 use crate::unzip;
 use crate::timing::{self, LoopWait};
@@ -438,7 +438,7 @@ impl PlaySession {
             .captured_frame
             .as_ref()
             .ok_or_else(|| anyhow!("No frame captured"))?;
-        crate::video::ppm::dump_frame(path, frame, self.pixel_format)?;
+        crate::dump::dump_frame(path, frame, self.pixel_format)?;
         info!("Frame dumped to {:?}", path);
         Ok(())
     }

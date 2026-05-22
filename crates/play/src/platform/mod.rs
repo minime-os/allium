@@ -13,9 +13,14 @@ pub mod simulator;
 use crate::control::ControlEvent;
 use crate::input::JoypadState;
 use crate::scale::ScaleMode;
-use crate::video::frame::{CapturedFrame, VideoFrameFormat};
-use crate::video::VideoPresentResult;
+use crate::frame::{CapturedFrame, VideoFrameFormat};
 use anyhow::Result;
+
+#[derive(Default)]
+pub struct VideoPresentResult {
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    pub should_quit: bool,
+}
 
 pub trait HostStats {
     fn cpu_usage(&mut self) -> Option<f64>;
