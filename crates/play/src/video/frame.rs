@@ -26,12 +26,12 @@ impl CapturedFrame {
     }
 }
 
-pub(super) const RGB565_BYTES_PER_PIXEL: usize = 2;
-pub(super) const XRGB8888_BYTES_PER_PIXEL: usize = 4;
+pub(crate) const RGB565_BYTES_PER_PIXEL: usize = 2;
+pub(crate) const XRGB8888_BYTES_PER_PIXEL: usize = 4;
 #[cfg(feature = "miyoo")]
-pub(super) const BGRA8888_BYTES_PER_PIXEL: usize = 4;
+pub(crate) const BGRA8888_BYTES_PER_PIXEL: usize = 4;
 
-pub(super) fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
+pub(crate) fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> Result<()> {
     let row_bytes = frame.width as usize * bytes_per_pixel;
     if frame.pitch < row_bytes {
         return Err(anyhow!(
@@ -53,7 +53,7 @@ pub(super) fn validate_frame(frame: &CapturedFrame, bytes_per_pixel: usize) -> R
     Ok(())
 }
 
-pub(super) fn rgb565_to_rgb(bytes: &[u8]) -> [u8; 3] {
+pub(crate) fn rgb565_to_rgb(bytes: &[u8]) -> [u8; 3] {
     let pixel = u16::from_le_bytes([bytes[0], bytes[1]]);
     [
         scale_5_to_8((pixel >> 11) & 0x1f),

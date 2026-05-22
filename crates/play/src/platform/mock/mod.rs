@@ -1,12 +1,13 @@
 // Headless mock platform bootstrapper coordinating video/audio/input components in headless test runs.
 
 pub mod audio;
+pub mod stats;
 pub mod video;
 
 use crate::audio::AudioConsumer;
 use crate::control::ControlEvent;
 use crate::input::JoypadState;
-use crate::platform::{EmulationPlatform, InputBackend};
+use crate::platform::{EmulationPlatform, HostStats, InputBackend};
 use crate::scale::ScaleMode;
 use anyhow::Result;
 use audio::MockAudio;
@@ -16,6 +17,7 @@ pub struct MockPlatform {
     video: MockVideo,
     audio: MockAudio,
     input: MockInput,
+    stats: stats::MockStats,
 }
 
 pub struct MockInput;
@@ -43,10 +45,12 @@ impl EmulationPlatform for MockPlatform {
         let video = MockVideo::new();
         let audio = MockAudio::new();
         let input = MockInput;
+        let stats = stats::MockStats::new();
         Ok(Self {
             video,
             audio,
             input,
+            stats,
         })
     }
 
@@ -60,5 +64,9 @@ impl EmulationPlatform for MockPlatform {
 
     fn input(&mut self) -> &mut Self::Input {
         &mut self.input
+    }
+
+    fn stats(&mut self) -> &mut dyn HostStats {
+        &mut self.stats
     }
 }

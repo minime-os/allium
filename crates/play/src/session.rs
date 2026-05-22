@@ -53,6 +53,7 @@ pub struct PlaySession {
     pub(crate) system_dir: CString,
     pub(crate) save_dir: CString,
     pub(crate) hud_state: hud::HudState,
+    pub(crate) host_cpu: f64,
 }
 
 const DUMP_WARMUP_FRAMES: usize = 60;
@@ -70,6 +71,7 @@ impl PlaySession {
             paused: false, should_quit: false, scale_mode: scale, state_slot: 0,
             command_state: CommandState::new(0), system_dir: sys_dir, save_dir: sav_dir,
             hud_state: hud::HudState::new(hud),
+            host_cpu: 0.0,
         }
     }
 
@@ -300,6 +302,7 @@ impl PlaySession {
         self.process_pending_control_events(rx, drv)?;
         if self.should_quit { return Ok(Some("quit command")); }
         self.poll_and_apply_platform_inputs(drv);
+        self.host_cpu = drv.stats().cpu_usage().unwrap_or(0.0);
         self.emulate_single_frame(frames)?;
         if self.present_captured_frame(drv)? { return Ok(Some("window closed")); }
         *next_at = (*next_at + interval).max(Instant::now());

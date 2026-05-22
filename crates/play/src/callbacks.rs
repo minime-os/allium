@@ -213,7 +213,7 @@ impl PlaySession {
 
     fn draw_refresh_hud(&mut self, width: c_uint, height: c_uint, pitch: usize) {
         if self.hud_state.is_enabled() && let Some(format) = self.pixel_format {
-            self.hud_state.update();
+            self.hud_state.update(self.host_cpu);
             let aspect = self.av_info.as_ref().map(|av| av.geometry.aspect_ratio).unwrap_or(0.0);
             let frame = self.captured_frame.as_mut().unwrap();
             self.hud_state.draw(

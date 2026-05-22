@@ -17,6 +17,10 @@ use crate::video::frame::{CapturedFrame, VideoFrameFormat};
 use crate::video::VideoPresentResult;
 use anyhow::Result;
 
+pub trait HostStats {
+    fn cpu_usage(&mut self) -> Option<f64>;
+}
+
 pub trait VideoBackend {
     fn present(
         &mut self,
@@ -58,6 +62,7 @@ pub trait EmulationPlatform {
     fn video(&mut self) -> &mut Self::Video;
     fn audio(&mut self) -> &mut Self::Audio;
     fn input(&mut self) -> &mut Self::Input;
+    fn stats(&mut self) -> &mut dyn HostStats;
 }
 
 #[cfg(feature = "miyoo")]

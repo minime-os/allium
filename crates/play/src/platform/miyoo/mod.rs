@@ -2,11 +2,12 @@
 
 pub mod audio;
 pub mod env;
+pub mod stats;
 pub mod video;
 
 use crate::control::ControlEvent;
 use crate::input::JoypadState;
-use crate::platform::{EmulationPlatform, InputBackend};
+use crate::platform::{EmulationPlatform, HostStats, InputBackend};
 use crate::scale::ScaleMode;
 use anyhow::Result;
 use audio::MiyooAudio;
@@ -18,6 +19,7 @@ pub struct MiyooPlatform {
     video: MiyooVideo,
     audio: MiyooAudio,
     input: MiyooInput,
+    stats: stats::MiyooStats,
     _guard: MiyooSystemGuard,
 }
 
@@ -52,10 +54,12 @@ impl EmulationPlatform for MiyooPlatform {
         let platform = CommonPlatform::new()?;
         let input = MiyooInput { platform };
         let audio = MiyooAudio::new(sample_rate, audio_consumer)?;
+        let stats = stats::MiyooStats::new();
         Ok(Self {
             video,
             audio,
             input,
+            stats,
             _guard,
         })
     }
@@ -70,6 +74,10 @@ impl EmulationPlatform for MiyooPlatform {
 
     fn input(&mut self) -> &mut Self::Input {
         &mut self.input
+    }
+
+    fn stats(&mut self) -> &mut dyn HostStats {
+        &mut self.stats
     }
 }
 

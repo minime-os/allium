@@ -3,7 +3,6 @@
 
 use crate::control::ControlEvent;
 use crate::scale::{ScaleMode, ScaleRect, calculate_scale_rect};
-use crate::video::convert::{scale_rgb565_to_xrgb8888, scale_xrgb8888_to_xrgb8888};
 use crate::video::frame::{CapturedFrame, VideoFrameFormat};
 use crate::video::{VideoPresentResult};
 use crate::platform::VideoBackend;
@@ -246,3 +245,133 @@ fn control_event_for_keycode(keycode: KeyCode) -> Option<ControlEvent> {
         _ => None,
     }
 }
+
+// =========================================================================
+// Simulator Pixel Scaling & Color Space Conversion
+// =========================================================================
+
+use crate::video::frame::{
+    RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb, validate_frame,
+};
+
+fn for_each_scaled_pixel<F>(
+    frame: &CapturedFrame,
+    bpp: usize,
+    out_w: u32,
+    rect: ScaleRect,
+    mut write: F,
+) where
+    F: FnMut(usize, usize),
+{
+    // Loops over destination coordinates and maps them back to source pixels.
+    for dst_y in 0..rect.height {
+        let src_y = dst_y as u64 * frame.height as u64 / rect.height as u64;
+        let y_pitch = src_y as usize * frame.pitch;
+        let out_y_pitch = (rect.y + dst_y) as usize * out_w as usize;
+        for dst_x in 0..rect.width {
+            let src_x = dst_x as u64 * frame.width as u64 / rect.width as u64;
+            let source_start = y_pitch + src_x as usize * bpp;
+            let output_index = out_y_pitch + (rect.x + dst_x) as usize;
+            write(source_start, output_index);
+        }
+    }
+}
+
+fn validate_scaled_u32_output(
+    output: &[u32],
+    output_width: u32,
+    output_height: u32,
+    rect: ScaleRect,
+) -> Result<()> {
+    // Validates that the output buffer is large enough for the scaled rect.
+    validate_scaled_rect(output_width, output_height, rect)?;
+    let expected = output_width as usize * output_height as usize;
+    if output.len() < expected {
+        return Err(anyhow!(
+            "Output buffer has {} pixels, expected at least {}",
+            output.len(),
+            expected
+        ));
+    }
+    Ok(())
+}
+
+fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) -> Result<()> {
+    // Verifies that the scale rectangle boundaries do not exceed output screen sizes.
+    if rect.width == 0 || rect.height == 0 {
+        return Err(anyhow!("Scale destination size must be non-zero"));
+    }
+    if rect.x + rect.width > output_width || rect.y + rect.height > output_height {
+        return Err(anyhow!("Scale destination rect exceeds output bounds"));
+    }
+    Ok(())
+}
+
+fn pack_xrgb8888(r: u8, g: u8, b: u8) -> u32 {
+    // Packs separate RGB channels into a single 32-bit XRGB pixel word.
+    (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+}
+
+fn scale_rgb565_to_xrgb8888(
+    frame: &CapturedFrame,
+    output: &mut [u32],
+    w: u32,
+    h: u32,
+    rect: ScaleRect,
+) -> Result<()> {
+    // Scales and converts raw 16-bit RGB565 frames to 32-bit XRGB buffer.
+    validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
+    validate_scaled_u32_output(output, w, h, rect)?;
+    output.fill(0);
+    for_each_scaled_pixel(frame, RGB565_BYTES_PER_PIXEL, w, rect, |src, out| {
+        let [r, g, b] = rgb565_to_rgb(&frame.data[src..src + 2]);
+        output[out] = pack_xrgb8888(r, g, b);
+    });
+    Ok(())
+}
+
+fn scale_xrgb8888_to_xrgb8888(
+    frame: &CapturedFrame,
+    output: &mut [u32],
+    w: u32,
+    h: u32,
+    rect: ScaleRect,
+) -> Result<()> {
+    // Scales raw 32-bit XRGB8888 frames into 32-bit XRGB output buffer.
+    validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
+    validate_scaled_u32_output(output, w, h, rect)?;
+    output.fill(0);
+    for_each_scaled_pixel(frame, XRGB8888_BYTES_PER_PIXEL, w, rect, |src, out| {
+        let bytes = &frame.data[src..src + XRGB8888_BYTES_PER_PIXEL];
+        output[out] = pack_xrgb8888(bytes[2], bytes[1], bytes[0]);
+    });
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scales_rgb565_to_softbuffer_pixels() {
+        let frame = CapturedFrame::new(vec![0x00, 0xf8], 1, 1, 2);
+        let mut output = vec![0; 4];
+
+        scale_rgb565_to_xrgb8888(
+            &frame,
+            &mut output,
+            2,
+            2,
+            ScaleRect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(output, vec![0x00ff0000; 4]);
+    }
+}
+

@@ -1,6 +1,5 @@
 // Pure video module coordinating frame structures, layout hud overlay, and PPM file screenshots.
 
-pub mod convert;
 pub mod frame;
 pub mod ppm;
 pub mod hud;

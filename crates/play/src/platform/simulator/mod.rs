@@ -1,12 +1,13 @@
 // Desktop host platform bootstrapper coordinating video window, sound output, and input listening.
 
 pub mod audio;
+pub mod stats;
 pub mod video;
 
 use crate::audio::AudioConsumer;
 use crate::control::ControlEvent;
 use crate::input::JoypadState;
-use crate::platform::{EmulationPlatform, InputBackend};
+use crate::platform::{EmulationPlatform, HostStats, InputBackend};
 use crate::scale::ScaleMode;
 use anyhow::Result;
 use audio::SimulatorAudio;
@@ -18,6 +19,7 @@ pub struct SimulatorPlatform {
     video: SimulatorVideo,
     audio: SimulatorAudio,
     input: SimulatorInput,
+    stats: stats::SimulatorStats,
 }
 
 pub struct SimulatorInput {
@@ -57,10 +59,12 @@ impl EmulationPlatform for SimulatorPlatform {
         let video = SimulatorVideo::new(source_width, source_height, aspect_ratio, scale, key_tx, control_tx)?;
         let audio = SimulatorAudio::new(sample_rate, audio_consumer)?;
         let input = SimulatorInput { key_rx, control_rx };
+        let stats = stats::SimulatorStats::new();
         Ok(Self {
             video,
             audio,
             input,
+            stats,
         })
     }
 
@@ -74,5 +78,9 @@ impl EmulationPlatform for SimulatorPlatform {
 
     fn input(&mut self) -> &mut Self::Input {
         &mut self.input
+    }
+
+    fn stats(&mut self) -> &mut dyn HostStats {
+        &mut self.stats
     }
 }
