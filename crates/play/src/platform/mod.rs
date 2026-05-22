@@ -10,7 +10,7 @@ pub mod miyoo;
 #[cfg(feature = "simulator")]
 pub mod simulator;
 
-use crate::control::ControlEvent;
+use crate::shortcuts::ControlEvent;
 use crate::input::JoypadState;
 use crate::video::ScaleMode;
 use crate::video::{CapturedFrame, VideoFrameFormat};

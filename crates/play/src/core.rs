@@ -1,11 +1,26 @@
 use crate::libretro_sys::*;
+use crate::config::Args;
+use crate::audio::AudioProducer;
+use crate::config::PlayConfig;
+use crate::diagnostics;
+use crate::input::JoypadState;
+use crate::paths::PlayPaths;
+use crate::save;
+use crate::video::ScaleMode;
+use crate::video::{CapturedFrame, VideoFrameFormat};
+use crate::platform::{DefaultPlatform, EmulationPlatform, VideoBackend, InputBackend};
+use crate::unzip;
+use crate::content;
 use anyhow::{Context, Result, anyhow};
 use libloading::Library;
-use std::ffi::CStr;
+use log::{debug, info, warn};
+use std::ffi::{CStr, CString};
+use std::fs;
 use std::os::raw::c_uint;
 use std::os::raw::c_void;
 use std::path::Path;
 use std::ptr;
+use std::sync::Arc;
 
 // libretro gives borrowed C data for core properties; Play copies it so it can log/use it safely later.
 pub struct CoreInfo {
@@ -268,5 +283,256 @@ unsafe fn c_string(value: *const std::os::raw::c_char) -> String {
 impl Drop for Core {
     fn drop(&mut self) {
         self.symbols.deinit();
+    }
+}
+
+// ---- PlaySession: state struct + lifecycle ----
+
+// UDP command state shared between the session and the async command server.
+pub struct CommandState {
+    pub(crate) state_slot: std::sync::atomic::AtomicI8,
+}
+
+impl CommandState {
+    pub fn new(state_slot: i8) -> Arc<Self> {
+        Arc::new(Self {
+            state_slot: std::sync::atomic::AtomicI8::new(state_slot),
+        })
+    }
+
+    pub fn set_state_slot(&self, state_slot: i8) {
+        self.state_slot.store(state_slot, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn state_slot(&self) -> i8 {
+        self.state_slot.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+// One session owns the mutable runtime state so callbacks have one place to land.
+pub struct PlaySession {
+    pub(crate) args: Args,
+    pub(crate) paths: PlayPaths,
+    pub(crate) config: PlayConfig,
+    pub(crate) core: Option<Core>,
+    pub(crate) rom_data: Option<Vec<u8>>,
+    pub(crate) rom_path_cstring: Option<CString>,
+    pub(crate) resolved_rom: Option<unzip::ResolvedRom>,
+    pub(crate) captured_frame: Option<CapturedFrame>,
+    pub(crate) pixel_format: Option<VideoFrameFormat>,
+    pub(crate) av_info: Option<retro_system_av_info>,
+    pub(crate) audio_producer: Option<AudioProducer>,
+    pub(crate) joypad_state: JoypadState,
+    pub(crate) fast_forwarding: bool,
+    pub(crate) paused: bool,
+    pub(crate) should_quit: bool,
+    pub(crate) scale_mode: ScaleMode,
+    pub(crate) state_slot: i8,
+    pub(crate) command_state: Arc<CommandState>,
+    pub(crate) system_dir: CString,
+    pub(crate) save_dir: CString,
+    pub(crate) hud_state: diagnostics::HudState,
+    pub(crate) host_cpu: f64,
+}
+
+const DUMP_WARMUP_FRAMES: usize = 60;
+
+fn to_cstring(path: &std::path::Path) -> CString {
+    CString::new(path.to_string_lossy().into_owned()).expect("Path must not contain NUL")
+}
+
+impl PlaySession {
+    fn create_instance(
+        args: Args,
+        paths: PlayPaths,
+        config: PlayConfig,
+        scale: ScaleMode,
+        sys_dir: CString,
+        sav_dir: CString,
+        hud: bool,
+    ) -> Self {
+        Self {
+            args,
+            paths,
+            config,
+            core: None,
+            rom_data: None,
+            rom_path_cstring: None,
+            resolved_rom: None,
+            captured_frame: None,
+            pixel_format: None,
+            av_info: None,
+            audio_producer: None,
+            joypad_state: JoypadState::new(),
+            fast_forwarding: false,
+            paused: false,
+            should_quit: false,
+            scale_mode: scale,
+            state_slot: 0,
+            command_state: CommandState::new(0),
+            system_dir: sys_dir,
+            save_dir: sav_dir,
+            hud_state: diagnostics::HudState::new(hud),
+            host_cpu: 0.0,
+        }
+    }
+
+    /// Constructs a new `PlaySession` from parsed CLI arguments.
+    pub fn new(args: Args) -> Self {
+        let paths = PlayPaths::from_args(&args);
+        let sys_dir = to_cstring(&paths.config_dir);
+        let sav_dir = to_cstring(&paths.save_dir);
+        let config = PlayConfig::load().unwrap_or_else(|_| PlayConfig::default());
+        let hud = args.hud || config.hud || std::env::var("ALLIUM_HUD").is_ok();
+        let scale = args.scale;
+        Self::create_instance(args, paths, config, scale, sys_dir, sav_dir, hud)
+    }
+
+    /// Dynamically loads the libretro shared library core.
+    pub(crate) fn load_core(&mut self) -> Result<()> {
+        info!("Loading core from {:?}", self.paths.core_path);
+        let core = unsafe { Core::load(&self.paths.core_path)? };
+        let info = core.get_system_info();
+        info!("Core loaded: {} ({})", info.library_name, info.library_version);
+        info!("Extensions: {}", info.valid_extensions);
+        self.core = Some(core);
+        Ok(())
+    }
+
+    /// Loads the active ROM and resolves AV metadata.
+    pub(crate) fn load_game(&mut self) -> Result<()> {
+        fs::create_dir_all(&self.paths.config_dir)?;
+        fs::create_dir_all(&self.paths.save_dir)?;
+        let sys_info = self
+            .core
+            .as_ref()
+            .ok_or_else(|| anyhow!("Core not loaded"))?
+            .get_system_info();
+
+        let (game_info, resolved, rom_data, rom_path) =
+            content::resolve_and_prepare_rom(&self.paths, &sys_info)?;
+        self.rom_path_cstring = rom_path;
+        self.rom_data = rom_data;
+        self.resolved_rom = resolved;
+        self.core.as_ref().unwrap().load_game(&game_info)?;
+
+        // Autoload
+        let core = self.core.as_ref().unwrap();
+        save::load_sram(core, &self.paths)?;
+        if self.config.autoload {
+            if let Err(err) = save::load_state_slot(core, &self.paths, -1) {
+                debug!("Autosave autoload skipped: {}", err);
+            }
+        }
+        self.store_av_info()?;
+        Ok(())
+    }
+
+    /// Unloads the core game cleanly.
+    pub(crate) fn unload_game(&mut self) {
+        if let Some(core) = &self.core {
+            if self.config.autosave {
+                if let Err(err) = save::save_state_slot(core, &self.paths, -1) {
+                    warn!("Failed to autosave state: {}", err);
+                }
+            }
+        }
+        if let Some(core) = self.core.take() {
+            if let Err(err) = save::save_sram(&core, &self.paths) {
+                warn!("Failed to save SRAM: {}", err);
+            }
+            core.unload_game();
+        }
+        self.resolved_rom = None;
+    }
+
+    /// Extracts and caches active video/audio geometry from the core.
+    pub(crate) fn store_av_info(&mut self) -> Result<()> {
+        let core = self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
+        let av_info = core.get_system_av_info();
+        info!(
+            "AV Info: {}x{} @ {} fps, sample_rate: {}",
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.timing.fps,
+            av_info.timing.sample_rate
+        );
+        self.av_info = Some(av_info);
+        Ok(())
+    }
+
+    /// Advances the emulator state by one tick.
+    pub(crate) fn emulate_single_frame(&mut self,
+        frames_run: &mut u64,
+    ) -> Result<()> {
+        if !self.paused {
+            self.core
+                .as_ref()
+                .ok_or_else(|| anyhow!("Core not loaded"))?
+                .run();
+            *frames_run += 1;
+            self.hud_state.tick_cpu();
+        }
+        Ok(())
+    }
+
+    /// Displays the current frame buffer on the screen.
+    pub(crate) fn present_captured_frame(
+        &self,
+        driver: &mut DefaultPlatform,
+    ) -> Result<bool> {
+        if self.paused && driver.skip_presentation_when_paused() {
+            return Ok(false);
+        }
+        if let Some(frame) = &self.captured_frame {
+            let format = self
+                .pixel_format
+                .ok_or_else(|| anyhow!("No pixel format set"))?;
+            if driver.video().present(frame, format)?.should_quit {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Changes the active save state slot index, validating bounds.
+    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
+    pub(crate) fn select_state_slot(&mut self, slot: i8) -> Result<()> {
+        if !(-1..=9).contains(&slot) {
+            return Err(anyhow!("Save state slot must be between 0 and 9"));
+        }
+        self.state_slot = slot;
+        self.command_state.set_state_slot(slot);
+        info!("Selected state slot {}", slot);
+        Ok(())
+    }
+
+    /// Recalculates output coordinates and applies scaling changes to the video backend.
+    pub(crate) fn apply_scale(
+        &self,
+        video: &mut impl VideoBackend,
+    ) -> Result<()> {
+        let av_info = self
+            .av_info
+            .as_ref()
+            .ok_or_else(|| anyhow!("AV info not loaded"))?;
+        video.set_scale(
+            self.scale_mode,
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.geometry.aspect_ratio,
+        )
+    }
+
+    pub(crate) fn set_audio_muted(&mut self, muted: bool) {
+        if let Some(producer) = &mut self.audio_producer {
+            producer.set_muted(muted);
+        }
+    }
+}
+
+impl Drop for PlaySession {
+    fn drop(&mut self) {
+        self.unload_game();
     }
 }

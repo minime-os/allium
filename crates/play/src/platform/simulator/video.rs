@@ -1,7 +1,7 @@
 // Desktop host video presenter using winit windowing and softbuffer pixels.
 // It pumps OS/keyboard events and posts them via channels to the input component.
 
-use crate::control::ControlEvent;
+use crate::shortcuts::ControlEvent;
 use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect};
 use crate::video::{CapturedFrame, VideoFrameFormat};
 use crate::platform::VideoPresentResult;

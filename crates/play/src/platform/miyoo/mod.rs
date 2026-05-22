@@ -5,7 +5,7 @@ pub mod env;
 pub mod stats;
 pub mod video;
 
-use crate::control::ControlEvent;
+use crate::shortcuts::ControlEvent;
 use crate::input::JoypadState;
 use crate::platform::{EmulationPlatform, HostStats, InputBackend};
 use crate::video::ScaleMode;

@@ -9,7 +9,7 @@
 // 4. External "C" callback entrypoints invoked directly by libretro.
 // 5. Unsafe helper (`with_handler`) to locate the static handler and delegate events.
 
-use crate::session::PlaySession;
+use crate::core::PlaySession;
 use crate::libretro_sys::*;
 use crate::video::{CapturedFrame, VideoFrameFormat};
 use log::{info, warn, debug};
