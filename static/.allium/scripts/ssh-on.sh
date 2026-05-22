@@ -80,16 +80,13 @@ mount -o bind "$PASSWD_GEN" /etc/passwd
 log "Bind-mounted custom /etc/passwd"
 
 # ---------------------------------------------------------------------------
-#  Generate host keys on first run (dropbear -R).
-#  No need for an explicit dropbearkey call.
+#  Start dropbear with the explicit host key we generated above.
+#  We do NOT use -R because /etc/dropbear is on a read-only squashfs.
 # ---------------------------------------------------------------------------
-mkdir -p /etc/dropbear
 log "Starting dropbear..."
 
-# -R : generate host keys on first run
-# -F : run in foreground (we background with &)
-# -E : log to stderr
-"$ROOT"/.allium/bin/dropbear -R -F -E >>"$LOG" 2>>1 &
+HOST_KEY="/mnt/SDCARD/.allium/state/ssh/dropbear_rsa_host_key"
+"$ROOT"/.allium/bin/dropbear -r "$HOST_KEY" -F -E >>"$LOG" 2>>1 &
 
 DROPBEAR_PID=$!
 sleep 1
