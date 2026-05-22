@@ -4,133 +4,54 @@ use crate::callbacks::{self, LibretroCallbacks};
 use crate::config::PlayConfig;
 use crate::control::ControlEvent;
 use crate::core::Core;
+use crate::hud;
 use crate::input::JoypadState;
 use crate::libretro_sys::*;
 use crate::paths::PlayPaths;
+use crate::save;
 use crate::scale::ScaleMode;
 use crate::udp::CommandState;
 use crate::video::frame::{CapturedFrame, VideoFrameFormat};
-#[cfg(feature = "miyoo")]
-use crate::video::miyoo::MiyooVideo;
-#[cfg(feature = "simulator")]
-use crate::video::simulator::SimulatorVideo;
-use crate::video::{self, VideoBackend, VideoPresentResult};
+use crate::platform::PlatformDriver;
+use crate::unzip;
+use crate::video::{self, VideoBackend};
 use anyhow::{Context, Result, anyhow};
-#[cfg(feature = "miyoo")]
-use common::platform::{DefaultPlatform, Platform};
 use log::{debug, info, warn};
 use std::ffi::CString;
 use std::fs;
 use std::os::raw::{c_char, c_uint, c_void};
-use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 // One session owns the mutable runtime state so callbacks have one place to land.
 pub struct PlaySession {
     args: Args,
     paths: PlayPaths,
     config: PlayConfig,
-    core: Option<Core>,
+    pub(crate) core: Option<Core>,
     rom_data: Option<Vec<u8>>,
     rom_path_cstring: Option<CString>,
-    active_rom_path: Option<PathBuf>,
-    extracted_rom_dir: Option<PathBuf>,
+    resolved_rom: Option<unzip::ResolvedRom>,
     captured_frame: Option<CapturedFrame>,
     pixel_format: Option<VideoFrameFormat>,
     av_info: Option<retro_system_av_info>,
-    audio_producer: Option<AudioProducer>,
+    pub(crate) audio_producer: Option<AudioProducer>,
     joypad_state: JoypadState,
-    fast_forwarding: bool,
-    paused: bool,
-    should_quit: bool,
-    scale_mode: ScaleMode,
-    state_slot: i8,
+    pub(crate) fast_forwarding: bool,
+    pub(crate) paused: bool,
+    pub(crate) should_quit: bool,
+    pub(crate) scale_mode: ScaleMode,
+    pub(crate) state_slot: i8,
     command_state: Arc<CommandState>,
     system_dir: CString,
     save_dir: CString,
-    hud_enabled: bool,
-    last_hud_update: std::time::Instant,
-    fps_ticks: u32,
-    cpu_ticks: u32,
-    fps_double: f64,
-    cpu_double: f64,
-    use_double: f64,
-    #[allow(dead_code)]
-    last_use_ticks: u64,
+    hud_state: hud::HudState,
 }
 
 const DUMP_WARMUP_FRAMES: usize = 60;
 
-// Platform abstraction: the main loop should not care whether it is on hardware or desktop.
-enum PlatformDriver {
-    #[cfg(feature = "simulator")]
-    Simulator(SimulatorVideo),
-    #[cfg(feature = "miyoo")]
-    Miyoo(MiyooVideo, DefaultPlatform),
-}
 
-impl PlatformDriver {
-    fn new(
-        source_width: u32,
-        source_height: u32,
-        aspect_ratio: f32,
-        scale: ScaleMode,
-    ) -> Result<Self> {
-        #[cfg(feature = "simulator")]
-        {
-            Ok(Self::Simulator(SimulatorVideo::new(
-                source_width, source_height, aspect_ratio, scale,
-            )?))
-        }
-        #[cfg(feature = "miyoo")]
-        {
-            Ok(Self::Miyoo(
-                MiyooVideo::new(source_width, source_height, aspect_ratio, scale)?,
-                DefaultPlatform::new()?,
-            ))
-        }
-    }
-
-    fn video(&mut self) -> &mut dyn VideoBackend {
-        match self {
-            #[cfg(feature = "simulator")]
-            Self::Simulator(v) => v,
-            #[cfg(feature = "miyoo")]
-            Self::Miyoo(v, _) => v,
-        }
-    }
-
-    #[allow(unused_variables)]
-    async fn before_run(&mut self, session: &mut PlaySession) {
-        match self {
-            #[cfg(feature = "miyoo")]
-            Self::Miyoo(_, platform) => session.poll_platform_input(platform).await,
-            #[cfg(feature = "simulator")]
-            Self::Simulator(_) => {}
-        }
-    }
-
-    fn after_run(&mut self, session: &mut PlaySession) -> Result<bool> {
-        match self {
-            #[cfg(feature = "simulator")]
-            Self::Simulator(video) => {
-                if session.present_frame(video).map(|r| r.should_quit)? {
-                    return Ok(true);
-                }
-                session.apply_simulator_input(video);
-            }
-            #[cfg(feature = "miyoo")]
-            Self::Miyoo(video, _) => {
-                if !session.paused {
-                    session.present_frame(video).map(|_| ())?;
-                }
-            }
-        }
-        Ok(false)
-    }
-}
 
 impl PlaySession {
     // Resolve paths up front so later stages do not repeat path policy.
@@ -153,8 +74,7 @@ impl PlaySession {
             core: None,
             rom_data: None,
             rom_path_cstring: None,
-            active_rom_path: None,
-            extracted_rom_dir: None,
+            resolved_rom: None,
             captured_frame: None,
             pixel_format: None,
             av_info: None,
@@ -168,14 +88,7 @@ impl PlaySession {
             command_state: CommandState::new(0),
             system_dir,
             save_dir,
-            hud_enabled,
-            last_hud_update: std::time::Instant::now(),
-            fps_ticks: 0,
-            cpu_ticks: 0,
-            fps_double: 0.0,
-            cpu_double: 0.0,
-            use_double: 0.0,
-            last_use_ticks: 0,
+            hud_state: hud::HudState::new(hud_enabled),
         }
     }
 
@@ -257,7 +170,12 @@ impl PlaySession {
             .get_system_info();
 
         info!("load_game: resolving ROM path...");
-        let rom_path = self.resolve_rom_path(&sys_info)?;
+        let resolved = unzip::resolve_rom_path(
+            &self.paths.rom,
+            &sys_info.valid_extensions,
+            sys_info.block_extract,
+        )?;
+        let rom_path = &resolved.active_path;
         let path_str = rom_path
             .to_str()
             .ok_or_else(|| anyhow!("Invalid ROM path"))?;
@@ -275,7 +193,7 @@ impl PlaySession {
 
         if !sys_info.need_fullpath {
             info!("load_game: reading ROM data into memory...");
-            let data = fs::read(&rom_path)?;
+            let data = fs::read(rom_path)?;
             game_info.data = data.as_ptr() as *const c_void;
             game_info.size = data.len();
             self.rom_data = Some(data);
@@ -310,49 +228,9 @@ impl PlaySession {
         );
         self.av_info = Some(av_info);
 
+        self.resolved_rom = Some(resolved);
         info!("load_game: complete");
         Ok(())
-    }
-
-    fn resolve_rom_path(&mut self, sys_info: &crate::core::CoreInfo) -> Result<PathBuf> {
-        self.active_rom_path = None;
-        self.extracted_rom_dir = None;
-
-        if !is_zip_path(&self.paths.rom) || sys_info.block_extract {
-            self.active_rom_path = Some(self.paths.rom.clone());
-            return Ok(self.paths.rom.clone());
-        }
-
-        let extracted = self.extract_zip_rom(&sys_info.valid_extensions)?;
-        self.active_rom_path = Some(extracted.clone());
-        Ok(extracted)
-    }
-
-    fn extract_zip_rom(&mut self, valid_extensions: &str) -> Result<PathBuf> {
-        let file = fs::File::open(&self.paths.rom)?;
-        let mut archive = zip::ZipArchive::new(file)?;
-        let index = find_zip_rom_index(&mut archive, valid_extensions)?;
-        let mut entry = archive.by_index(index)?;
-        let file_name = Path::new(entry.name())
-            .file_name()
-            .ok_or_else(|| anyhow!("ZIP ROM entry has no file name"))?
-            .to_owned();
-        let dir = std::env::temp_dir().join(format!(
-            "allium-play-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir)?;
-        let path = dir.join(file_name);
-        let mut out = fs::File::create(&path)?;
-        std::io::copy(&mut entry, &mut out)?;
-
-        info!("Extracted ZIP ROM to {:?}", path);
-        self.extracted_rom_dir = Some(dir);
-        Ok(path)
     }
 
     // One retro_run call advances one emulated frame; this keeps that cadence near core FPS.
@@ -415,19 +293,35 @@ impl PlaySession {
                 shutdown_reason = "quit command";
                 break;
             }
-
-            driver.before_run(self).await;
+            let platform_events = driver.poll_input(&mut self.joypad_state);
+            for event in platform_events {
+                if let Err(err) = self.apply_control_event(event) {
+                    warn!("Control event failed: {}", err);
+                }
+            }
             if !self.paused {
                 self.core
                     .as_ref()
                     .ok_or_else(|| anyhow!("Core not loaded"))?
                     .run();
                 frames_run += 1;
-                self.cpu_ticks += 1;
+                self.hud_state.tick_cpu();
             }
-            if driver.after_run(self)? {
-                shutdown_reason = "window closed";
-                break;
+            #[allow(unused_mut)]
+            let mut should_present = true;
+            #[cfg(feature = "miyoo")]
+            if self.paused {
+                should_present = false;
+            }
+            if should_present {
+                if let Some(frame) = &self.captured_frame {
+                    let format = self.pixel_format.ok_or_else(|| anyhow!("No pixel format set"))?;
+                    let present_res = driver.present_frame(frame, format)?;
+                    if present_res.should_quit {
+                        shutdown_reason = "window closed";
+                        break;
+                    }
+                }
             }
             next_frame_at += frame_interval;
             let now = Instant::now();
@@ -501,99 +395,40 @@ impl PlaySession {
             }
             core.unload_game();
         }
-        self.cleanup_extracted_rom();
+        self.resolved_rom = None;
     }
 
     fn load_sram(&self) -> Result<()> {
-        let Some(core) = &self.core else {
-            return Ok(());
-        };
-        let Some((data, size)) = core.memory_region(RETRO_MEMORY_SAVE_RAM) else {
-            return Ok(());
-        };
-        let path = self.paths.sram_path();
-        if !path.exists() {
-            return Ok(());
-        }
-
-        let sram = fs::read(&path)?;
-        if sram.len() != size {
-            warn!(
-                "SRAM size mismatch for {:?}: file={}, core={}",
-                path,
-                sram.len(),
-                size
-            );
-        }
-        let copy_len = sram.len().min(size);
-        unsafe {
-            ptr::copy_nonoverlapping(sram.as_ptr(), data, copy_len);
-        }
-        info!("Loaded SRAM from {:?}", path);
-        Ok(())
+        let core = self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
+        save::load_sram(core, &self.paths)
     }
 
     fn save_sram(&self, core: &Core) -> Result<()> {
-        let Some((data, size)) = core.memory_region(RETRO_MEMORY_SAVE_RAM) else {
-            return Ok(());
-        };
-        fs::create_dir_all(&self.paths.save_dir)?;
-        let path = self.paths.sram_path();
-        let sram = unsafe { std::slice::from_raw_parts(data as *const u8, size) };
-        fs::write(&path, sram)?;
-        info!("Saved SRAM to {:?}", path);
-        Ok(())
+        save::save_sram(core, &self.paths)
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-    fn save_state(&self) -> Result<()> {
+    pub(crate) fn save_state(&self) -> Result<()> {
         self.save_state_slot(self.state_slot)
     }
 
     fn save_state_slot(&self, slot: i8) -> Result<()> {
-        let core = self
-            .core
-            .as_ref()
-            .ok_or_else(|| anyhow!("Core not loaded"))?;
-        let size = core.serialize_size();
-        if size == 0 {
-            return Err(anyhow!("Core does not support save states"));
-        }
-
-        let mut data = vec![0; size];
-        if !core.serialize(&mut data) {
-            return Err(anyhow!("Core failed to save state"));
-        }
-
-        fs::create_dir_all(&self.paths.state_dir)?;
-        let path = self.paths.state_path(slot)?;
-        fs::write(&path, data)?;
-        info!("Saved state slot {} to {:?}", slot, path);
-        Ok(())
+        let core = self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
+        save::save_state_slot(core, &self.paths, slot)
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-    fn load_state(&self) -> Result<()> {
+    pub(crate) fn load_state(&self) -> Result<()> {
         self.load_state_slot(self.state_slot)
     }
 
     fn load_state_slot(&self, slot: i8) -> Result<()> {
-        let core = self
-            .core
-            .as_ref()
-            .ok_or_else(|| anyhow!("Core not loaded"))?;
-        let path = self.paths.state_path(slot)?;
-        let data = fs::read(&path)?;
-        if !core.unserialize(&data) {
-            return Err(anyhow!("Core failed to load state"));
-        }
-
-        info!("Loaded state slot {} from {:?}", slot, path);
-        Ok(())
+        let core = self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
+        save::load_state_slot(core, &self.paths, slot)
     }
 
     #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-    fn select_state_slot(&mut self, slot: i8) -> Result<()> {
+    pub(crate) fn select_state_slot(&mut self, slot: i8) -> Result<()> {
         if !(-1..=9).contains(&slot) {
             return Err(anyhow!("Save state slot must be between 0 and 9"));
         }
@@ -602,23 +437,6 @@ impl PlaySession {
         self.command_state.set_state_slot(slot);
         info!("Selected state slot {}", slot);
         Ok(())
-    }
-
-    fn cleanup_extracted_rom(&mut self) {
-        if let Some(dir) = self.extracted_rom_dir.take()
-            && let Err(err) = fs::remove_dir_all(&dir)
-        {
-            warn!("Failed to remove extracted ROM dir {:?}: {}", dir, err);
-        }
-    }
-
-    fn present_frame(
-        &self,
-        video: &mut dyn VideoBackend,
-    ) -> Result<VideoPresentResult> {
-        let frame = self.captured_frame.as_ref().ok_or_else(|| anyhow!("No frame captured"))?;
-        let format = self.pixel_format.ok_or_else(|| anyhow!("No pixel format set"))?;
-        video.present(frame, format)
     }
 
     fn apply_scale(&self, video: &mut dyn VideoBackend) -> Result<()> {
@@ -654,79 +472,9 @@ impl PlaySession {
         Ok(())
     }
 
-    #[cfg(feature = "miyoo")]
-    async fn poll_platform_input(&mut self, platform: &mut DefaultPlatform) {
-        while let Some(key_event) = platform.try_poll() {
-            self.joypad_state.apply(key_event);
-        }
-    }
-
-    #[cfg(feature = "simulator")]
-    fn apply_simulator_input(&mut self, video: &mut SimulatorVideo) {
-        for event in video.take_control_events() {
-            if let Err(err) = self.apply_control_event(event) {
-                warn!("Control event failed: {}", err);
-            }
-        }
-        for key_event in video.take_key_events() {
-            self.joypad_state.apply(key_event);
-        }
-    }
 
     fn apply_control_event(&mut self, event: ControlEvent) -> Result<()> {
-        match event {
-            ControlEvent::SaveState => self.save_state(),
-            ControlEvent::LoadState => self.load_state(),
-            ControlEvent::SaveStateSlot(slot) => {
-                self.select_state_slot(slot)?;
-                self.save_state()
-            }
-            ControlEvent::LoadStateSlot(slot) => {
-                self.select_state_slot(slot)?;
-                self.load_state()
-            }
-            ControlEvent::SelectStateSlot(slot) => self.select_state_slot(slot),
-            ControlEvent::StateSlotPlus => self.select_state_slot((self.state_slot + 1).min(9)),
-            ControlEvent::StateSlotMinus => self.select_state_slot((self.state_slot - 1).max(-1)),
-            ControlEvent::SetPaused(paused) => {
-                self.paused = paused;
-                Ok(())
-            }
-            ControlEvent::TogglePaused => {
-                self.paused = !self.paused;
-                Ok(())
-            }
-            ControlEvent::ToggleFastForward => {
-                self.fast_forwarding = !self.fast_forwarding;
-                if let Some(producer) = &mut self.audio_producer {
-                    producer.set_muted(self.fast_forwarding);
-                }
-                Ok(())
-            }
-            ControlEvent::SetFastForward(enabled) => {
-                self.fast_forwarding = enabled;
-                if let Some(producer) = &mut self.audio_producer {
-                    producer.set_muted(enabled);
-                }
-                Ok(())
-            }
-            ControlEvent::Reset => {
-                self.core
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("Core not loaded"))?
-                    .reset();
-                Ok(())
-            }
-            ControlEvent::Quit => {
-                self.should_quit = true;
-                Ok(())
-            }
-            ControlEvent::CycleScale => {
-                self.scale_mode = self.scale_mode.next();
-                info!("Selected scale mode: {:?}", self.scale_mode);
-                Ok(())
-            }
-        }
+        event.apply(self)
     }
 }
 
@@ -738,45 +486,6 @@ fn frame_interval(fps: f64) -> Result<Duration> {
     Ok(Duration::from_secs_f64(1.0 / fps))
 }
 
-fn is_zip_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("zip"))
-}
-
-fn find_zip_rom_index(
-    archive: &mut zip::ZipArchive<fs::File>,
-    valid_extensions: &str,
-) -> Result<usize> {
-    let valid_extensions: Vec<String> = valid_extensions
-        .split('|')
-        .filter(|extension| !extension.is_empty())
-        .map(|extension| extension.to_ascii_lowercase())
-        .collect();
-
-    for index in 0..archive.len() {
-        let entry = archive.by_index(index)?;
-        if entry.is_dir() {
-            continue;
-        }
-        let Some(extension) = Path::new(entry.name())
-            .extension()
-            .and_then(|value| value.to_str())
-            .map(|value| value.to_ascii_lowercase())
-        else {
-            continue;
-        };
-        if valid_extensions.is_empty()
-            || valid_extensions
-                .iter()
-                .any(|valid_extension| valid_extension == &extension)
-        {
-            return Ok(index);
-        }
-    }
-
-    Err(anyhow!("ZIP ROM contains no supported ROM file"))
-}
 
 enum LoopWait {
     Frame,
@@ -899,27 +608,21 @@ impl LibretroCallbacks for PlaySession {
             ptr::copy_nonoverlapping(data as *const u8, frame.data.as_mut_ptr(), size);
         }
 
-        self.fps_ticks += 1;
+        self.hud_state.tick_fps();
 
-        if self.hud_enabled {
-            self.update_hud_metrics();
+        if self.hud_state.is_enabled() {
+            self.hud_state.update();
             if let Some(format) = self.pixel_format {
-                let fps = self.fps_double;
-                let cpu = self.cpu_double;
-                let usage = self.use_double;
                 let scale_mode = self.scale_mode;
                 let aspect = self.av_info.as_ref().map(|av| av.geometry.aspect_ratio).unwrap_or(0.0);
                 
                 let frame = self.captured_frame.as_mut().unwrap();
-                Self::draw_hud_on_buffer(
+                self.hud_state.draw(
                     &mut frame.data,
-                    width as u32,
-                    height as u32,
+                    width,
+                    height,
                     pitch,
                     format,
-                    fps,
-                    cpu,
-                    usage,
                     scale_mode,
                     aspect,
                 );
@@ -974,73 +677,7 @@ impl PlaySession {
         true
     }
 
-    fn update_hud_metrics(&mut self) {
-        // Track the elapsed time to periodically update framerates and usage.
-        let now = std::time::Instant::now();
-        let elapsed = now.duration_since(self.last_hud_update);
-        if elapsed >= std::time::Duration::from_secs(1) {
-            let elapsed_secs = elapsed.as_secs_f64();
-            self.fps_double = self.fps_ticks as f64 / elapsed_secs;
-            self.cpu_double = self.cpu_ticks as f64 / elapsed_secs;
-            self.update_cpu_usage(elapsed_secs);
-            self.last_hud_update = now;
-            self.fps_ticks = 0;
-            self.cpu_ticks = 0;
-        }
-    }
 
-    #[cfg(target_os = "linux")]
-    fn update_cpu_usage(&mut self, elapsed_secs: f64) {
-        // Retrieve standard Linux system tick metric to compute CPU percent usage.
-        if let Some(ticks) = get_cpu_usage_ticks() {
-            let ticksps = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-            if ticksps > 0 {
-                let use_ticks = ticks * 100 / ticksps as u64;
-                if self.last_use_ticks > 0 {
-                    let diff = use_ticks.saturating_sub(self.last_use_ticks);
-                    self.use_double = diff as f64 / elapsed_secs;
-                }
-                self.last_use_ticks = use_ticks;
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    fn update_cpu_usage(&mut self, _elapsed_secs: f64) {
-        // CPU usage metrics are only available on platform architectures with procfs.
-    }
-
-    fn draw_hud_on_buffer(
-        data: &mut [u8],
-        width: u32,
-        height: u32,
-        pitch: usize,
-        format: VideoFrameFormat,
-        fps: f64,
-        cpu: f64,
-        usage: f64,
-        scale_mode: ScaleMode,
-        aspect_ratio: f32,
-    ) {
-        // Query the correct scaling dimensions to construct exactly matching HUD text values.
-        let rect = crate::scale::calculate_scale_rect(
-            scale_mode,
-            width,
-            height,
-            aspect_ratio,
-            640,
-            480,
-        ).unwrap_or(crate::scale::ScaleRect { x: 0, y: 0, width: 640, height: 480 });
-        let scale = (640 / width).min(480 / height).max(1);
-        let tl = format!("{}x{} {}x", width, height, scale);
-        let tr = format!("{},{} {}x{}", rect.x, rect.y, width * scale, height * scale);
-        let bl = format!("{:.1}/{:.1} {}%", fps, cpu, usage as i32);
-        let br = format!("{}x{}", rect.width, rect.height);
-        crate::video::hud::blit_text(&tl, 2, 2, data, pitch, width, height, format);
-        crate::video::hud::blit_text(&tr, -2, 2, data, pitch, width, height, format);
-        crate::video::hud::blit_text(&bl, 2, -2, data, pitch, width, height, format);
-        crate::video::hud::blit_text(&br, -2, -2, data, pitch, width, height, format);
-    }
 }
 
 // Unload content before deinit so the core can release game-specific state cleanly.
@@ -1051,120 +688,7 @@ impl Drop for PlaySession {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-    use std::ffi::CStr;
-    use std::os::raw::c_char;
-    use std::time::Duration;
+mod tests;
 
-    fn test_session() -> PlaySession {
-        PlaySession::new(Args::parse_from([
-            "play",
-            "--rom",
-            "game.nes",
-            "--core",
-            "nestopia_libretro.dylib",
-            "--core-id",
-            "nestopia",
-        ]))
-    }
 
-    #[test]
-    fn frame_interval_uses_core_fps() {
-        let interval = frame_interval(60.0).unwrap();
-
-        assert_eq!(interval, Duration::from_nanos(16_666_667));
-    }
-
-    #[test]
-    fn frame_interval_rejects_zero_fps() {
-        let err = frame_interval(0.0).unwrap_err();
-
-        assert_eq!(err.to_string(), "Core reported invalid FPS: 0");
-    }
-
-    #[test]
-    fn frame_interval_rejects_nan_fps() {
-        let err = frame_interval(f64::NAN).unwrap_err();
-
-        assert_eq!(err.to_string(), "Core reported invalid FPS: NaN");
-    }
-
-    #[test]
-    fn returns_system_directory_to_core() {
-        let mut session = test_session();
-        let mut system_dir: *const c_char = ptr::null();
-
-        let handled = session.on_environment(
-            RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY,
-            &mut system_dir as *mut *const c_char as *mut c_void,
-        );
-
-        assert!(handled);
-        assert!(!system_dir.is_null());
-        let path = unsafe { CStr::from_ptr(system_dir) }
-            .to_string_lossy()
-            .into_owned();
-        assert!(path.contains(".allium/config/play/nestopia"));
-    }
-
-    #[test]
-    fn returns_save_directory_to_core() {
-        let mut session = test_session();
-        let mut save_dir: *const c_char = ptr::null();
-
-        let handled = session.on_environment(
-            RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY,
-            &mut save_dir as *mut *const c_char as *mut c_void,
-        );
-
-        assert!(handled);
-        assert!(!save_dir.is_null());
-        let path = unsafe { CStr::from_ptr(save_dir) }
-            .to_string_lossy()
-            .into_owned();
-        assert!(path.contains("Saves/CurrentProfile/play/nestopia"));
-    }
-
-    #[test]
-    fn accepts_xrgb8888_pixel_format() {
-        let mut session = test_session();
-        let mut format = retro_pixel_format_RETRO_PIXEL_FORMAT_XRGB8888;
-
-        let handled = session.on_environment(
-            RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
-            &mut format as *mut retro_pixel_format as *mut c_void,
-        );
-
-        assert!(handled);
-    }
-
-    #[test]
-    fn reuses_frame_buffer_when_geometry_matches() {
-        let mut session = test_session();
-        let first = [1u8, 2, 3, 4];
-        let second = [5u8, 6, 7, 8];
-
-        session.on_video_refresh(first.as_ptr() as *const c_void, 1, 1, 4);
-        let first_ptr = session.captured_frame.as_ref().unwrap().data.as_ptr();
-
-        session.on_video_refresh(second.as_ptr() as *const c_void, 1, 1, 4);
-        let frame = session.captured_frame.as_ref().unwrap();
-
-        assert_eq!(frame.data.as_ptr(), first_ptr);
-        assert_eq!(frame.data, second);
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn get_cpu_usage_ticks() -> Option<u64> {
-    // Parse /proc/self/stat robustly by locating the closing parenthesis of the process name.
-    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
-    let r_paren = stat.rfind(')')?;
-    let after_comm = &stat[r_paren + 1..];
-    let mut parts = after_comm.split_whitespace();
-    let utime_str = parts.nth(11)?;
-    utime_str.parse::<u64>().ok()
-}
 
