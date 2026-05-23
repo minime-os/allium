@@ -3,10 +3,10 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=vendor/libretro.h");
+    println!("cargo:rerun-if-changed=../../third-party/libretro/libretro.h");
 
     let bindings = bindgen::Builder::default()
-        .header("vendor/libretro.h")
+        .header("../../third-party/libretro/libretro.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .allowlist_type("retro_.*")
         .allowlist_function("retro_.*")
