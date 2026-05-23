@@ -5,36 +5,24 @@ pub mod stats;
 pub mod video;
 
 use crate::audio::AudioConsumer;
-use crate::shortcuts::ControlEvent;
+use crate::commands::ControlEvent;
 use crate::input::JoypadState;
-use crate::platform::{EmulationPlatform, HostStats, InputBackend};
 use crate::video::ScaleMode;
 use anyhow::Result;
 use audio::MockAudio;
 use video::MockVideo;
 
 pub struct MockPlatform {
-    video: MockVideo,
-    audio: MockAudio,
-    input: MockInput,
-    stats: stats::MockStats,
+    pub video: MockVideo,
+    _audio: MockAudio,
+    _input: MockInput,
 }
 
 pub struct MockInput;
 
-impl InputBackend for MockInput {
-    // Headless mock poll loop returning empty inputs.
-    fn poll(&mut self, _joypad: &mut JoypadState) -> Vec<ControlEvent> {
-        Vec::new()
-    }
-}
-
-impl EmulationPlatform for MockPlatform {
-    type Video = MockVideo;
-    type Audio = MockAudio;
-    type Input = MockInput;
-
-    fn initialize(
+impl MockPlatform {
+    pub fn new(
+        _core_id: &str,
         _source_width: u32,
         _source_height: u32,
         _aspect_ratio: f32,
@@ -43,38 +31,28 @@ impl EmulationPlatform for MockPlatform {
         _audio_consumer: AudioConsumer,
     ) -> Result<Self> {
         let video = MockVideo::new();
-        let audio = MockAudio::new();
-        let input = MockInput;
-        let stats = stats::MockStats::new();
+        let _audio = MockAudio::new();
+        let _input = MockInput;
         Ok(Self {
             video,
-            audio,
-            input,
-            stats,
+            _audio,
+            _input,
         })
     }
 
-    fn video(&mut self) -> &mut Self::Video {
-        &mut self.video
+    pub fn poll_input(&mut self, _joypad: &mut JoypadState) -> Vec<ControlEvent> {
+        Vec::new()
     }
 
-    fn audio(&mut self) -> &mut Self::Audio {
-        &mut self.audio
+    pub fn cpu_usage(&mut self) -> Option<f64> {
+        None
     }
 
-    fn input(&mut self) -> &mut Self::Input {
-        &mut self.input
-    }
-
-    fn stats(&mut self) -> &mut dyn HostStats {
-        &mut self.stats
-    }
-
-    fn skip_presentation_when_paused(&self) -> bool {
+    pub fn skip_presentation_when_paused(&self) -> bool {
         false
     }
 
-    async fn wait_for_shutdown(&mut self) {
+    pub async fn wait_for_shutdown(&mut self) {
         std::future::pending::<()>().await;
     }
 }

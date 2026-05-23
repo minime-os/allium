@@ -2,7 +2,6 @@
 // The result is cached for one second to avoid repeated disk reads.
 
 use std::time::{Duration, Instant};
-use crate::platform::HostStats;
 
 pub struct MiyooStats {
     last_use_ticks: u64,
@@ -20,8 +19,8 @@ impl MiyooStats {
     }
 }
 
-impl HostStats for MiyooStats {
-    fn cpu_usage(&mut self) -> Option<f64> {
+impl MiyooStats {
+    pub fn cpu_usage(&mut self) -> Option<f64> {
         let now = Instant::now();
         if now.duration_since(self.last_update) < Duration::from_secs(1) {
             return Some(self.cached_value);

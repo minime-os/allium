@@ -1,11 +1,9 @@
 // Desktop host video presenter using winit windowing and softbuffer pixels.
 // It pumps OS/keyboard events and posts them via channels to the input component.
 
-use crate::shortcuts::ControlEvent;
+use crate::commands::ControlEvent;
 use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
 use crate::video::{CapturedFrame, VideoFrameFormat};
-use crate::platform::VideoPresentResult;
-use crate::platform::VideoBackend;
 use anyhow::{Context, Result, anyhow};
 use common::platform::{Key, KeyEvent, simulator::SCREEN_HEIGHT, simulator::SCREEN_WIDTH};
 use log::info;
@@ -43,22 +41,22 @@ struct SimulatorVideoApp {
     control_tx: Sender<ControlEvent>,
 }
 
-impl VideoBackend for SimulatorVideo {
-    fn present(
+impl SimulatorVideo {
+    pub fn present(
         &mut self,
         frame: &CapturedFrame,
         format: VideoFrameFormat,
-    ) -> Result<VideoPresentResult> {
+    ) -> Result<bool> {
         self.pump_events()?;
         if self.app.closed {
-            return Ok(VideoPresentResult { should_quit: true });
+            return Ok(true);
         }
         self.scale_frame(frame, format)?;
         self.present_pixels()?;
-        Ok(VideoPresentResult::default())
+        Ok(false)
     }
 
-    fn set_scale(
+    pub fn set_scale(
         &mut self,
         mode: ScaleMode,
         source_width: u32,

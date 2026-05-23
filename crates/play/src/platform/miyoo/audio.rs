@@ -2,7 +2,6 @@
 // This module spawns a dedicated audio output thread feeding raw sound samples.
 
 use crate::audio::AudioConsumer;
-use crate::platform::AudioBackend;
 use anyhow::{Context, Result};
 use log::{info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,8 +37,6 @@ impl MiyooAudio {
         })
     }
 }
-
-impl AudioBackend for MiyooAudio {}
 
 impl Drop for MiyooAudio {
     fn drop(&mut self) {

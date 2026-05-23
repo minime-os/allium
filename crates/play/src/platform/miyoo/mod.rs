@@ -1,48 +1,29 @@
 // Miyoo platform bootstrapper coordinating video, audio, and physical input.
 
 pub mod audio;
-pub mod env;
 pub mod stats;
 pub mod video;
 
-use crate::shortcuts::ControlEvent;
+use crate::commands::ControlEvent;
 use crate::input::JoypadState;
-use crate::platform::{EmulationPlatform, HostStats, InputBackend};
 use crate::video::ScaleMode;
 use anyhow::Result;
 use audio::MiyooAudio;
 use common::platform::{DefaultPlatform as CommonPlatform, Platform};
-use env::MiyooSystemGuard;
 use video::MiyooVideo;
 
 pub struct MiyooPlatform {
-    video: MiyooVideo,
-    audio: MiyooAudio,
-    input: MiyooInput,
+    pub video: MiyooVideo,
+    _audio: MiyooAudio,
+    platform: CommonPlatform,
     stats: stats::MiyooStats,
     signal: Option<tokio::signal::unix::Signal>,
-    _guard: MiyooSystemGuard,
+    swap_enabled: bool,
 }
 
-pub struct MiyooInput {
-    platform: CommonPlatform,
-}
-
-impl InputBackend for MiyooInput {
-    fn poll(&mut self, joypad: &mut JoypadState) -> Vec<ControlEvent> {
-        while let Some(key_event) = self.platform.try_poll() {
-            joypad.apply(key_event);
-        }
-        Vec::new()
-    }
-}
-
-impl EmulationPlatform for MiyooPlatform {
-    type Video = MiyooVideo;
-    type Audio = MiyooAudio;
-    type Input = MiyooInput;
-
-    fn initialize(
+impl MiyooPlatform {
+    pub fn new(
+        core_id: &str,
         source_width: u32,
         source_height: u32,
         aspect_ratio: f32,
@@ -50,49 +31,65 @@ impl EmulationPlatform for MiyooPlatform {
         sample_rate: u32,
         audio_consumer: crate::audio::AudioConsumer,
     ) -> Result<Self> {
-        let _guard = MiyooSystemGuard::new(&get_core_id_from_args());
+        let swap_enabled = check_swap_needed(core_id);
+        if swap_enabled {
+            log::info!("Enabling swap for core {}", core_id);
+            run_script(&common::constants::ALLIUM_SCRIPTS_DIR.join("swap-on.sh"));
+        }
+
+        log::info!("Stopping audioserver");
+        run_script(&common::constants::ALLIUM_SD_ROOT.join(".tmp_update/script/stop_audioserver.sh"));
+        block_libpadsp_preload();
+        set_governor("performance");
+
         let video = MiyooVideo::new(source_width, source_height, aspect_ratio, scale)?;
         let platform = CommonPlatform::new()?;
-        let input = MiyooInput { platform };
-        let audio = MiyooAudio::new(sample_rate, audio_consumer)?;
+        let _audio = MiyooAudio::new(sample_rate, audio_consumer)?;
         let stats = stats::MiyooStats::new();
         let signal = None;
         Ok(Self {
             video,
-            audio,
-            input,
+            _audio,
+            platform,
             stats,
             signal,
-            _guard,
+            swap_enabled,
         })
     }
 
-    fn video(&mut self) -> &mut Self::Video {
-        &mut self.video
+    pub fn poll_input(&mut self, joypad: &mut JoypadState) -> Vec<ControlEvent> {
+        while let Some(key_event) = self.platform.try_poll() {
+            joypad.apply(key_event);
+        }
+        Vec::new()
     }
 
-    fn audio(&mut self) -> &mut Self::Audio {
-        &mut self.audio
+    pub fn cpu_usage(&mut self) -> Option<f64> {
+        self.stats.cpu_usage()
     }
 
-    fn input(&mut self) -> &mut Self::Input {
-        &mut self.input
-    }
-
-    fn stats(&mut self) -> &mut dyn HostStats {
-        &mut self.stats
-    }
-
-    fn skip_presentation_when_paused(&self) -> bool {
+    pub fn skip_presentation_when_paused(&self) -> bool {
         true
     }
 
-    async fn wait_for_shutdown(&mut self) {
+    pub async fn wait_for_shutdown(&mut self) {
         let signal = self.signal.get_or_insert_with(|| {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 .expect("Failed to install SIGTERM handler")
         });
         signal.recv().await;
+    }
+}
+
+impl Drop for MiyooPlatform {
+    fn drop(&mut self) {
+        log::info!("Starting audioserver");
+        run_script(&common::constants::ALLIUM_SD_ROOT.join(".tmp_update/script/start_audioserver.sh"));
+        if self.swap_enabled {
+            log::info!("Disabling swap");
+            run_script(&common::constants::ALLIUM_SCRIPTS_DIR.join("swap-off.sh"));
+        }
+        set_governor("ondemand");
     }
 }
 
@@ -110,14 +107,93 @@ pub fn init_logging() -> Result<()> {
     Ok(())
 }
 
-fn get_core_id_from_args() -> String {
-    std::env::args()
-        .position(|arg| arg == "--core")
-        .and_then(|pos| std::env::args().nth(pos + 1))
-        .and_then(|path| {
-            std::path::Path::new(&path)
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-        })
-        .unwrap_or_default()
+fn set_governor(governor: &str) {
+    let path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor";
+    if !std::path::Path::new(path).exists() {
+        return;
+    }
+    if let Err(err) = std::fs::write(path, governor) {
+        log::warn!("Failed to set CPU governor to {}: {}", governor, err);
+    } else {
+        log::info!("Successfully set CPU governor to {}", governor);
+    }
+}
+
+fn check_swap_needed(core_id: &str) -> bool {
+    let toml_path = &*common::constants::ALLIUM_CONFIG_CORES;
+    let contents = std::fs::read_to_string(toml_path).unwrap_or_default();
+    let Ok(parsed): Result<toml::Value, _> = toml::from_str(&contents) else {
+        return false;
+    };
+    parsed
+        .get("cores")
+        .and_then(|c| c.get(core_id))
+        .and_then(|c| c.get("swap"))
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false)
+}
+
+fn run_script(path: &std::path::Path) {
+    if !path.exists() {
+        return;
+    }
+    if let Err(err) = std::process::Command::new(path).status() {
+        log::warn!("Failed to execute script {}: {}", path.display(), err);
+    }
+}
+
+fn block_libpadsp_preload() {
+    let wpa_pid = find_pid_by_name("wpa_supplicant");
+    let udhcpc_pid = find_pid_by_name("udhcpc");
+    let has_padsp = wpa_pid.map(check_preload_padsp).unwrap_or(false)
+        || udhcpc_pid.map(check_preload_padsp).unwrap_or(false);
+    if has_padsp {
+        log::info!("libpadsp.so detected in network processes, restarting cleanly");
+        restart_network_cleanly();
+    }
+}
+
+fn find_pid_by_name(name: &str) -> Option<u32> {
+    let proc_dir = std::fs::read_dir("/proc").ok()?;
+    proc_dir
+        .flatten()
+        .find_map(|entry| get_pid_if_name_matches(&entry.path(), name))
+}
+
+fn get_pid_if_name_matches(path: &std::path::Path, name: &str) -> Option<u32> {
+    let file_name = path.file_name()?.to_str()?;
+    let pid = file_name.parse::<u32>().ok()?;
+    let comm = std::fs::read_to_string(path.join("comm")).ok()?;
+    if comm.trim() == name {
+        Some(pid)
+    } else {
+        None
+    }
+}
+
+fn check_preload_padsp(pid: u32) -> bool {
+    let maps_path = format!("/proc/{}/maps", pid);
+    let Ok(maps) = std::fs::read_to_string(maps_path) else {
+        return false;
+    };
+    maps.contains("libpadsp.so")
+}
+
+fn restart_network_cleanly() {
+    let _ = std::process::Command::new("killall").args(["-9", "wpa_supplicant", "udhcpc"]).status();
+
+    let wpa_path = common::constants::ALLIUM_SD_ROOT.join("miyoo/app/wpa_supplicant");
+    let mut wpa_cmd = std::process::Command::new(wpa_path);
+    wpa_cmd.args(["-B", "-D", "nl80211", "-iwlan0", "-c", "/appconfigs/wpa_supplicant.conf"])
+           .env_remove("LD_PRELOAD");
+    if let Err(e) = wpa_cmd.status() {
+        log::warn!("Failed to restart wpa_supplicant: {}", e);
+    }
+
+    let mut udhcpc_cmd = std::process::Command::new("udhcpc");
+    udhcpc_cmd.args(["-i", "wlan0", "-s", "/etc/init.d/udhcpc.script"])
+              .env_remove("LD_PRELOAD");
+    if let Err(e) = udhcpc_cmd.status() {
+        log::warn!("Failed to restart udhcpc: {}", e);
+    }
 }

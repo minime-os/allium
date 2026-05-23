@@ -1,5 +1,15 @@
 use anyhow::{Result, anyhow};
 use clap::ValueEnum;
+use std::time::Duration;
+
+// ---- Frame timing ----
+
+pub fn frame_interval(fps: f64) -> Result<Duration> {
+    if !fps.is_finite() || fps <= 0.0 {
+        return Err(anyhow!("Core reported invalid FPS: {}", fps));
+    }
+    Ok(Duration::from_secs_f64(1.0 / fps))
+}
 
 // ---- Pixel formats and frame buffer types ----
 
@@ -299,9 +309,20 @@ mod tests {
     }
 
     #[test]
-    fn scale_modes_cycle_in_display_order() {
-        assert_eq!(ScaleMode::Native.next(), ScaleMode::Aspect);
-        assert_eq!(ScaleMode::Aspect.next(), ScaleMode::Fullscreen);
-        assert_eq!(ScaleMode::Fullscreen.next(), ScaleMode::Native);
+    fn frame_interval_uses_core_fps() {
+        let interval = frame_interval(60.0).unwrap();
+        assert_eq!(interval, Duration::from_nanos(16_666_667));
+    }
+
+    #[test]
+    fn frame_interval_rejects_zero_fps() {
+        let err = frame_interval(0.0).unwrap_err();
+        assert_eq!(err.to_string(), "Core reported invalid FPS: 0");
+    }
+
+    #[test]
+    fn frame_interval_rejects_nan_fps() {
+        let err = frame_interval(f64::NAN).unwrap_err();
+        assert_eq!(err.to_string(), "Core reported invalid FPS: NaN");
     }
 }

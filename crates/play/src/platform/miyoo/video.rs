@@ -1,7 +1,6 @@
 // Miyoo-specific framebuffer presentation logic.
 // This module writes raw pixels directly to the physical /dev/fb0 framebuffer.
 
-use crate::platform::VideoBackend;
 use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
 use crate::video::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
@@ -9,7 +8,6 @@ use crate::video::{
 };
 
 pub(crate) const BGRA8888_BYTES_PER_PIXEL: usize = 4;
-use crate::platform::VideoPresentResult;
 use anyhow::{Result, anyhow};
 use framebuffer::Framebuffer;
 use log::info;
@@ -75,17 +73,17 @@ impl MiyooVideo {
     }
 }
 
-impl VideoBackend for MiyooVideo {
-    fn present(
+impl MiyooVideo {
+    pub fn present(
         &mut self,
         frame: &CapturedFrame,
         pixel_format: VideoFrameFormat,
-    ) -> Result<VideoPresentResult> {
+    ) -> Result<bool> {
         self.scale_to_fb(frame, pixel_format)?;
-        Ok(VideoPresentResult::default())
+        Ok(false)
     }
 
-    fn set_scale(
+    pub fn set_scale(
         &mut self,
         mode: ScaleMode,
         source_width: u32,

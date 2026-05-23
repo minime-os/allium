@@ -2,7 +2,6 @@
 // This backend initializes CPAL output stream, supporting floating-point or integer formats.
 
 use crate::audio::AudioConsumer;
-use crate::platform::AudioBackend;
 use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 
@@ -11,8 +10,6 @@ const CHANNELS: usize = 2;
 pub struct SimulatorAudio {
     _stream: cpal::Stream,
 }
-
-impl AudioBackend for SimulatorAudio {}
 
 impl SimulatorAudio {
     // Spawns/builds a CPAL audio stream using default host output device.
