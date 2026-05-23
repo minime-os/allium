@@ -18,7 +18,6 @@ use anyhow::Result;
 
 #[derive(Default)]
 pub struct VideoPresentResult {
-    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     pub should_quit: bool,
 }
 

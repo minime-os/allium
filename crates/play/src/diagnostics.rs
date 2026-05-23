@@ -162,25 +162,6 @@ fn draw_black_rect(
     }
 }
 
-fn draw_pixel_on_grid(
-    c: char,
-    gx: i32,
-    gy: i32,
-    params: (i32, i32, u32, usize, VideoFrameFormat, u32, u32),
-    data: &mut [u8],
-) {
-    let (ox, oy, white, pitch, format, width, height) = params;
-    let dx = ox + gx;
-    let dy = oy + gy;
-    if dx >= 0 && dx < width as i32 && dy >= 0 && dy < height as i32 {
-        let bytes = get_char_bitmap(c).as_bytes();
-        let idx = (gy * 5 + gx) as usize;
-        if idx < bytes.len() && bytes[idx] == b'1' {
-            write_pixel(dx, dy, white, data, pitch, format);
-        }
-    }
-}
-
 fn draw_character(
     c: char,
     ox: i32,
@@ -195,10 +176,18 @@ fn draw_character(
         VideoFrameFormat::Rgb565 => 0xffff,
         VideoFrameFormat::Xrgb8888 => 0xffffffff,
     };
-    for y in 0..9 {
-        for x in 0..5 {
-            let params = (ox, oy, white, pitch, format, width, height);
-            draw_pixel_on_grid(c, x, y, params, &mut *data);
+    let bytes = get_char_bitmap(c).as_bytes();
+    for gy in 0..9 {
+        for gx in 0..5 {
+            let dx = ox + gx;
+            let dy = oy + gy;
+            if dx < 0 || dx >= width as i32 || dy < 0 || dy >= height as i32 {
+                continue;
+            }
+            let idx = (gy * 5 + gx) as usize;
+            if idx < bytes.len() && bytes[idx] == b'1' {
+                write_pixel(dx, dy, white, data, pitch, format);
+            }
         }
     }
 }

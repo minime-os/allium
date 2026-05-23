@@ -2,7 +2,7 @@
 // This module writes raw pixels directly to the physical /dev/fb0 framebuffer.
 
 use crate::platform::VideoBackend;
-use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect};
+use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
 use crate::video::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
     validate_frame,
@@ -303,19 +303,6 @@ fn validate_scaled_byte_output(
             output.len(),
             expected_len
         ));
-    }
-    Ok(())
-}
-
-/// Verifies that the scale rectangle boundaries do not exceed output screen sizes.
-fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) -> Result<()> {
-    // Prevent zero dimension sizes to avoid divisions by zero in layout formulas.
-    if rect.width == 0 || rect.height == 0 {
-        return Err(anyhow!("Scale destination size must be non-zero"));
-    }
-    // Prevent drawing out of bounds, protecting from out of bounds memory writes.
-    if rect.x + rect.width > output_width || rect.y + rect.height > output_height {
-        return Err(anyhow!("Scale destination rect exceeds output bounds"));
     }
     Ok(())
 }

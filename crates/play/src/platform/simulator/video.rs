@@ -2,7 +2,7 @@
 // It pumps OS/keyboard events and posts them via channels to the input component.
 
 use crate::shortcuts::ControlEvent;
-use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect};
+use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
 use crate::video::{CapturedFrame, VideoFrameFormat};
 use crate::platform::VideoPresentResult;
 use crate::platform::VideoBackend;
@@ -120,6 +120,7 @@ impl SimulatorVideo {
     fn scale_frame(&mut self, frame: &CapturedFrame, format: VideoFrameFormat) -> Result<()> {
         let w = self.app.width.get();
         let h = self.app.height.get();
+        self.pixels.fill(0);
         match format {
             VideoFrameFormat::Rgb565 => {
                 scale_rgb565_to_xrgb8888(frame, &mut self.pixels, w, h, self.rect)
@@ -296,17 +297,6 @@ fn validate_scaled_u32_output(
     Ok(())
 }
 
-fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) -> Result<()> {
-    // Verifies that the scale rectangle boundaries do not exceed output screen sizes.
-    if rect.width == 0 || rect.height == 0 {
-        return Err(anyhow!("Scale destination size must be non-zero"));
-    }
-    if rect.x + rect.width > output_width || rect.y + rect.height > output_height {
-        return Err(anyhow!("Scale destination rect exceeds output bounds"));
-    }
-    Ok(())
-}
-
 fn pack_xrgb8888(r: u8, g: u8, b: u8) -> u32 {
     // Packs separate RGB channels into a single 32-bit XRGB pixel word.
     (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
@@ -322,7 +312,6 @@ fn scale_rgb565_to_xrgb8888(
     // Scales and converts raw 16-bit RGB565 frames to 32-bit XRGB buffer.
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
     validate_scaled_u32_output(output, w, h, rect)?;
-    output.fill(0);
     for_each_scaled_pixel(frame, RGB565_BYTES_PER_PIXEL, w, rect, |src, out| {
         let [r, g, b] = rgb565_to_rgb(&frame.data[src..src + 2]);
         output[out] = pack_xrgb8888(r, g, b);
@@ -340,7 +329,6 @@ fn scale_xrgb8888_to_xrgb8888(
     // Scales raw 32-bit XRGB8888 frames into 32-bit XRGB output buffer.
     validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
     validate_scaled_u32_output(output, w, h, rect)?;
-    output.fill(0);
     for_each_scaled_pixel(frame, XRGB8888_BYTES_PER_PIXEL, w, rect, |src, out| {
         let bytes = &frame.data[src..src + XRGB8888_BYTES_PER_PIXEL];
         output[out] = pack_xrgb8888(bytes[2], bytes[1], bytes[0]);

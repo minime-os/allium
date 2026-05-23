@@ -59,14 +59,13 @@ impl AudioProducer {
 
     // Pushes a block of interleaved stereo frames.
     pub fn push_frames(&mut self, samples: &[i16], frames: usize) -> usize {
-        let limit = (samples.len() / CHANNELS).min(frames);
         if self.muted {
-            return limit;
+            return (samples.len() / CHANNELS).min(frames);
         }
         let mut queued = 0;
-        for f in samples.chunks_exact(CHANNELS).take(limit) {
+        for f in samples.chunks_exact(CHANNELS).take(frames) {
             if self.producer.try_push(f[0]).is_err() || self.producer.try_push(f[1]).is_err() {
-                self.dropped_frames += (limit - queued) as u64;
+                self.dropped_frames += ((samples.len() / CHANNELS).min(frames) - queued) as u64;
                 break;
             }
             queued += 1;

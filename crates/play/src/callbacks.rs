@@ -19,27 +19,11 @@ use std::ptr;
 
 // libretro calls plain C function pointers, not Rust methods.
 // This global gives those callbacks a way back to the active PlaySession.
-static mut CALLBACK_HANDLER: Option<*mut dyn LibretroCallbacks> = None;
-
-/// Defines the event-handling callbacks that can be received from a libretro core.
-pub trait LibretroCallbacks {
-    fn on_environment(&mut self, cmd: c_uint, data: *mut c_void) -> bool;
-    fn on_video_refresh(
-        &mut self,
-        data: *const c_void,
-        width: c_uint,
-        height: c_uint,
-        pitch: usize,
-    );
-    fn on_audio_sample(&mut self, left: i16, right: i16);
-    fn on_audio_sample_batch(&mut self, data: *const i16, frames: usize) -> usize;
-    fn on_input_poll(&mut self);
-    fn on_input_state(&mut self, port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16;
-}
+static mut CALLBACK_HANDLER: Option<*mut PlaySession> = None;
 
 /// Registers the active `PlaySession` callback handler globally.
 /// This must be called before running a session so that core events find a valid destination.
-pub unsafe fn set_handler(handler: *mut dyn LibretroCallbacks) {
+pub unsafe fn set_handler(handler: *mut PlaySession) {
     unsafe {
         CALLBACK_HANDLER = Some(handler);
     }
@@ -55,7 +39,7 @@ pub unsafe fn clear_handler() {
 
 /// Environment callback wrapper invoked by the libretro core to query frontend capabilities.
 pub unsafe extern "C" fn environment_callback(cmd: c_uint, data: *mut c_void) -> bool {
-    unsafe { with_handler(|h| h.on_environment(cmd, data)).unwrap_or(false) }
+    unsafe { with_session(|h| h.on_environment(cmd, data)).unwrap_or(false) }
 }
 
 /// Video frame callback wrapper invoked by the libretro core for every rendered frame.
@@ -65,22 +49,22 @@ pub unsafe extern "C" fn video_refresh_callback(
     height: c_uint,
     pitch: usize,
 ) {
-    unsafe { with_handler(|h| h.on_video_refresh(data, width, height, pitch)) };
+    unsafe { with_session(|h| h.on_video_refresh(data, width, height, pitch)) };
 }
 
 /// Audio mono/stereo single sample callback wrapper invoked by the libretro core.
 pub unsafe extern "C" fn audio_sample_callback(left: i16, right: i16) {
-    unsafe { with_handler(|h| h.on_audio_sample(left, right)) };
+    unsafe { with_session(|h| h.on_audio_sample(left, right)) };
 }
 
 /// Audio batch sample callback wrapper invoked by the libretro core for high-performance audio output.
 pub unsafe extern "C" fn audio_sample_batch_callback(data: *const i16, frames: usize) -> usize {
-    unsafe { with_handler(|h| h.on_audio_sample_batch(data, frames)).unwrap_or(0) }
+    unsafe { with_session(|h| h.on_audio_sample_batch(data, frames)).unwrap_or(0) }
 }
 
 /// Input poll callback wrapper invoked by the libretro core to instruct Play to refresh inputs.
 pub unsafe extern "C" fn input_poll_callback() {
-    unsafe { with_handler(|h| h.on_input_poll()) };
+    unsafe { with_session(|h| h.on_input_poll()) };
 }
 
 /// Input query callback wrapper invoked by the libretro core to read buttons or controller inputs.
@@ -90,19 +74,19 @@ pub unsafe extern "C" fn input_state_callback(
     index: c_uint,
     id: c_uint,
 ) -> i16 {
-    unsafe { with_handler(|h| h.on_input_state(port, device, index, id)).unwrap_or(0) }
+    unsafe { with_session(|h| h.on_input_state(port, device, index, id)).unwrap_or(0) }
 }
 
 /// Safely attempts to run a operation on the active callback handler if it is present.
 /// If the handler is missing (e.g. during early initialization or teardown), it degrades to a harmless no-op.
-unsafe fn with_handler<T>(f: impl FnOnce(&mut dyn LibretroCallbacks) -> T) -> Option<T> {
+unsafe fn with_session<T>(f: impl FnOnce(&mut PlaySession) -> T) -> Option<T> {
     unsafe { CALLBACK_HANDLER.and_then(|handler| handler.as_mut()).map(f) }
 }
 
 // Callback methods mutate session state instead of using scattered globals.
-impl LibretroCallbacks for PlaySession {
+impl PlaySession {
     /// Handles requests from the core to query frontend environments (directories, pixel formats, etc.).
-    fn on_environment(&mut self, cmd: c_uint, data: *mut c_void) -> bool {
+    pub(crate) fn on_environment(&mut self, cmd: c_uint, data: *mut c_void) -> bool {
         match cmd {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => self.set_pixel_format(data),
             RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.system_dir),
@@ -115,7 +99,7 @@ impl LibretroCallbacks for PlaySession {
     }
 
     /// Captures a newly rendered frame from the core, copying it to session-owned memory, and draws HUD overlay if active.
-    fn on_video_refresh(
+    pub(crate) fn on_video_refresh(
         &mut self,
         data: *const c_void,
         width: c_uint,
@@ -130,14 +114,14 @@ impl LibretroCallbacks for PlaySession {
     }
 
     /// Processes a single stereo audio sample directly into our audio synchronization channel.
-    fn on_audio_sample(&mut self, left: i16, right: i16) {
+    pub(crate) fn on_audio_sample(&mut self, left: i16, right: i16) {
         if let Some(producer) = &mut self.audio_producer {
             producer.push_frame(left, right);
         }
     }
 
     /// Processes a batch array of stereo audio frames, pushing them into the output channel.
-    fn on_audio_sample_batch(&mut self, data: *const i16, frames: usize) -> usize {
+    pub(crate) fn on_audio_sample_batch(&mut self, data: *const i16, frames: usize) -> usize {
         if let Some(producer) = &mut self.audio_producer {
             if !data.is_null() {
                 let samples = unsafe { std::slice::from_raw_parts(data, frames * 2) };
@@ -149,10 +133,10 @@ impl LibretroCallbacks for PlaySession {
     }
 
     /// Dispatches input controller polling triggers.
-    fn on_input_poll(&mut self) {}
+    pub(crate) fn on_input_poll(&mut self) {}
 
     /// Queries the current keyboard or joypad button states inside our joypad state tracker.
-    fn on_input_state(&mut self, port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
+    pub(crate) fn on_input_state(&mut self, port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
         self.joypad_state.input_state(port, device, index, id)
     }
 }
@@ -229,7 +213,7 @@ impl PlaySession {
     }
 
     /// Copies system config paths into raw env void pointers, ensuring C-compatibility.
-    pub(crate) fn write_env_path(&self, data: *mut c_void, path: &CString) -> bool {
+    fn write_env_path(&self, data: *mut c_void, path: &CString) -> bool {
         if data.is_null() {
             return false;
         }
@@ -241,7 +225,7 @@ impl PlaySession {
     }
 
     /// Copies state boolean flags into raw env void pointers, ensuring C-compatibility.
-    pub(crate) fn write_env_bool(&self, data: *mut c_void, value: bool) -> bool {
+    fn write_env_bool(&self, data: *mut c_void, value: bool) -> bool {
         if data.is_null() {
             return false;
         }

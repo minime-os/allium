@@ -21,12 +21,9 @@ use config::Args;
 use core::{CommandState, PlaySession};
 use log::{debug, info, warn};
 use shortcuts::ControlEvent;
-use std::ffi::CString;
-use std::os::raw::c_void;
-use std::ptr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use platform::{DefaultPlatform, EmulationPlatform, VideoBackend, InputBackend};
+use platform::{DefaultPlatform, EmulationPlatform, InputBackend};
 use audio::{AudioQueue, validate_sample_rate};
 
 fn main() -> Result<()> {
@@ -269,23 +266,15 @@ fn poll_and_apply_platform_inputs(
 
 fn apply_control_event(session: &mut PlaySession, event: ControlEvent) -> Result<()> {
     match event {
-        ControlEvent::SaveState => {
-            let core = session.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
-            save::save_state_slot(core, &session.paths, session.state_slot)
-        }
-        ControlEvent::LoadState => {
-            let core = session.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
-            save::load_state_slot(core, &session.paths, session.state_slot)
-        }
+        ControlEvent::SaveState => save::save_state_slot(session.core()?, &session.paths, session.state_slot),
+        ControlEvent::LoadState => save::load_state_slot(session.core()?, &session.paths, session.state_slot),
         ControlEvent::SaveStateSlot(slot) => {
             session.select_state_slot(slot)?;
-            let core = session.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
-            save::save_state_slot(core, &session.paths, slot)
+            save::save_state_slot(session.core()?, &session.paths, slot)
         }
         ControlEvent::LoadStateSlot(slot) => {
             session.select_state_slot(slot)?;
-            let core = session.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
-            save::load_state_slot(core, &session.paths, slot)
+            save::load_state_slot(session.core()?, &session.paths, slot)
         }
         ControlEvent::SelectStateSlot(slot) => session.select_state_slot(slot),
         ControlEvent::StateSlotPlus => session.select_state_slot((session.state_slot + 1).min(9)),
@@ -302,11 +291,7 @@ fn apply_control_event(session: &mut PlaySession, event: ControlEvent) -> Result
             session.set_audio_muted(enabled);
             Ok(())
         }
-        ControlEvent::Reset => {
-            let core = session.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))?;
-            core.reset();
-            Ok(())
-        }
+        ControlEvent::Reset => { session.core()?.reset(); Ok(()) }
         ControlEvent::Quit => { session.should_quit = true; Ok(()) }
         ControlEvent::CycleScale => {
             session.scale_mode = session.scale_mode.next();
@@ -403,11 +388,11 @@ fn reply_for_command(command: &common::retroarch::RetroArchCommand, state: &Comm
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::callbacks::LibretroCallbacks;
     use crate::libretro_sys::*;
     use clap::Parser;
     use std::ffi::CStr;
-    use std::os::raw::c_char;
+    use std::os::raw::{c_char, c_void};
+    use std::ptr;
 
     fn test_session() -> PlaySession {
         PlaySession::new(Args::parse_from([

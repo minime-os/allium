@@ -191,6 +191,16 @@ fn center_rect(width: u32, height: u32, output_width: u32, output_height: u32) -
     }
 }
 
+pub(crate) fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) -> Result<()> {
+    if rect.width == 0 || rect.height == 0 {
+        return Err(anyhow!("Scale destination size must be non-zero"));
+    }
+    if rect.x + rect.width > output_width || rect.y + rect.height > output_height {
+        return Err(anyhow!("Scale destination rect exceeds output bounds"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

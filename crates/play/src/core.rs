@@ -8,7 +8,7 @@ use crate::paths::PlayPaths;
 use crate::save;
 use crate::video::ScaleMode;
 use crate::video::{CapturedFrame, VideoFrameFormat};
-use crate::platform::{DefaultPlatform, EmulationPlatform, VideoBackend, InputBackend};
+use crate::platform::{DefaultPlatform, EmulationPlatform, VideoBackend};
 use crate::unzip;
 use crate::content;
 use anyhow::{Context, Result, anyhow};
@@ -33,8 +33,9 @@ pub struct CoreInfo {
 }
 
 // Core is the loaded libretro library. It keeps the library alive and exposes Rust methods.
+#[allow(dead_code)]
 pub struct Core {
-    _lib: Library, // Keep the dynamic library loaded while these function pointers exist.
+    lib: Library,
     symbols: CoreSymbols,
 }
 
@@ -65,7 +66,6 @@ struct CoreGameplaySymbols {
 }
 
 // CoreSymbols is the raw libretro function table loaded from the dynamic library.
-#[cfg_attr(not(feature = "simulator"), allow(dead_code))]
 struct CoreSymbols {
     lifecycle: CoreLifecycleSymbols,
     gameplay: CoreGameplaySymbols,
@@ -83,7 +83,7 @@ impl Core {
         symbols.install_callbacks();
         symbols.init();
 
-        Ok(Self { _lib: lib, symbols })
+        Ok(Self { lib, symbols })
     }
 }
 
@@ -193,17 +193,14 @@ impl Core {
         unsafe { (self.symbols.gameplay.retro_reset)() };
     }
 
-    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     pub fn serialize_size(&self) -> usize {
         unsafe { (self.symbols.gameplay.retro_serialize_size)() }
     }
 
-    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     pub fn serialize(&self, data: &mut [u8]) -> bool {
         unsafe { (self.symbols.gameplay.retro_serialize)(data.as_mut_ptr() as *mut c_void, data.len()) }
     }
 
-    #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
     pub fn unserialize(&self, data: &[u8]) -> bool {
         unsafe { (self.symbols.gameplay.retro_unserialize)(data.as_ptr() as *const c_void, data.len()) }
     }
@@ -335,22 +332,19 @@ pub struct PlaySession {
     pub(crate) host_cpu: f64,
 }
 
-const DUMP_WARMUP_FRAMES: usize = 60;
-
 fn to_cstring(path: &std::path::Path) -> CString {
     CString::new(path.to_string_lossy().into_owned()).expect("Path must not contain NUL")
 }
 
 impl PlaySession {
-    fn create_instance(
-        args: Args,
-        paths: PlayPaths,
-        config: PlayConfig,
-        scale: ScaleMode,
-        sys_dir: CString,
-        sav_dir: CString,
-        hud: bool,
-    ) -> Self {
+    /// Constructs a new `PlaySession` from parsed CLI arguments.
+    pub fn new(args: Args) -> Self {
+        let paths = PlayPaths::from_args(&args);
+        let sys_dir = to_cstring(&paths.config_dir);
+        let sav_dir = to_cstring(&paths.save_dir);
+        let config = PlayConfig::load().unwrap_or_else(|_| PlayConfig::default());
+        let hud = args.hud || config.hud || std::env::var("ALLIUM_HUD").is_ok();
+        let scale = args.scale;
         Self {
             args,
             paths,
@@ -377,15 +371,8 @@ impl PlaySession {
         }
     }
 
-    /// Constructs a new `PlaySession` from parsed CLI arguments.
-    pub fn new(args: Args) -> Self {
-        let paths = PlayPaths::from_args(&args);
-        let sys_dir = to_cstring(&paths.config_dir);
-        let sav_dir = to_cstring(&paths.save_dir);
-        let config = PlayConfig::load().unwrap_or_else(|_| PlayConfig::default());
-        let hud = args.hud || config.hud || std::env::var("ALLIUM_HUD").is_ok();
-        let scale = args.scale;
-        Self::create_instance(args, paths, config, scale, sys_dir, sav_dir, hud)
+    pub(crate) fn core(&self) -> Result<&Core> {
+        self.core.as_ref().ok_or_else(|| anyhow!("Core not loaded"))
     }
 
     /// Dynamically loads the libretro shared library core.
