@@ -9,13 +9,13 @@ use crate::input::JoypadState;
 use crate::video::ScaleMode;
 use anyhow::Result;
 use audio::MiyooAudio;
-use common::platform::{DefaultPlatform as CommonPlatform, Platform};
+use common::platform::miyoo::evdev::EvdevKeys;
 use video::MiyooVideo;
 
 pub struct MiyooPlatform {
     pub video: MiyooVideo,
     _audio: MiyooAudio,
-    platform: CommonPlatform,
+    keys: EvdevKeys,
     stats: stats::MiyooStats,
     signal: Option<tokio::signal::unix::Signal>,
     swap_enabled: bool,
@@ -43,14 +43,14 @@ impl MiyooPlatform {
         set_governor("performance");
 
         let video = MiyooVideo::new(source_width, source_height, aspect_ratio, scale)?;
-        let platform = CommonPlatform::new()?;
+        let keys = EvdevKeys::new()?;
         let _audio = MiyooAudio::new(sample_rate, audio_consumer)?;
         let stats = stats::MiyooStats::new();
         let signal = None;
         Ok(Self {
             video,
             _audio,
-            platform,
+            keys,
             stats,
             signal,
             swap_enabled,
@@ -58,7 +58,7 @@ impl MiyooPlatform {
     }
 
     pub fn poll_input(&mut self, joypad: &mut JoypadState) -> Vec<ControlEvent> {
-        while let Some(key_event) = self.platform.try_poll() {
+        while let Some(key_event) = self.keys.try_poll() {
             joypad.apply(key_event);
         }
         Vec::new()
