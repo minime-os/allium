@@ -2,7 +2,6 @@
 compile_error!("pick `simulator` or `miyoo` feature");
 
 mod audio;
-mod callbacks;
 mod commands;
 mod config;
 mod content;
@@ -43,13 +42,13 @@ fn main() -> Result<()> {
         info!("ROM path: {:?}", session.ctx.paths.rom);
 
         unsafe {
-            callbacks::set_handler(&mut session);
+            core::set_handler(&mut session);
         }
 
         let result = execute_session(&mut session, audio_consumer).await;
 
         unsafe {
-            callbacks::clear_handler();
+            core::clear_handler();
         }
 
         result
