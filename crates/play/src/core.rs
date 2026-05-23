@@ -1,4 +1,4 @@
-use crate::libretro_sys::*;
+use libretro::*;
 use crate::config::{Args, PlayConfig};
 use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::commands::{CommandState, ControlEvent};

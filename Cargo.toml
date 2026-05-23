@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/libretro",
     "crates/common",
     "crates/alliumd",
     "crates/allium-launcher",

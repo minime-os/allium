@@ -9,7 +9,6 @@ mod core;
 mod dump;
 mod hud;
 mod input;
-mod libretro_sys;
 mod paths;
 mod platform;
 mod save;

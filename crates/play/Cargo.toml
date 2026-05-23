@@ -26,4 +26,5 @@ cpal = { version = "0.15.3", optional = true }
 framebuffer = { workspace = true, optional = true }
 softbuffer = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
+libretro = { path = "../libretro" }
 ffi = { version = "0.1.0", path = "../ffi", optional = true }

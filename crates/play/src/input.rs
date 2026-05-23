@@ -1,4 +1,4 @@
-use crate::libretro_sys::*;
+use libretro::*;
 use common::platform::{Key, KeyEvent};
 use std::os::raw::c_uint;
 

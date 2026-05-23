@@ -6,7 +6,7 @@ use std::fs;
 use std::ptr;
 use crate::core::Core;
 use crate::paths::PlayPaths;
-use crate::libretro_sys::RETRO_MEMORY_SAVE_RAM;
+use libretro::RETRO_MEMORY_SAVE_RAM;
 use anyhow::{Result, anyhow};
 use log::{info, warn};
 

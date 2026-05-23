@@ -1897,6 +1897,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "libretro"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+]
+
+[[package]]
 name = "libsqlite3-sys"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2575,6 +2582,7 @@ dependencies = [
  "framebuffer",
  "libc",
  "libloading",
+ "libretro",
  "log",
  "nix 0.29.0",
  "ringbuf",

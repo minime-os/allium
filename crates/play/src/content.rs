@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use crate::core::CoreInfo;
 use crate::paths::PlayPaths;
 use crate::unzip;
-use crate::libretro_sys::retro_game_info;
+use libretro::retro_game_info;
 
 pub fn resolve_and_prepare_rom(
     paths: &PlayPaths,
