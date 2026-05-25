@@ -46,6 +46,7 @@ where
     status_bar: StatusBar<B>,
     menu: SettingsList,
     guide_selector: Option<GuideSelector>,
+    play_menu: Option<crate::view::PlayMenu>,
     button_hints: ButtonHints<String>,
     entries: Vec<MenuEntry>,
     retroarch_info: Option<RetroArchInfo>,
@@ -214,6 +215,7 @@ where
             status_bar,
             menu,
             guide_selector,
+            play_menu: None,
             button_hints,
             entries,
             retroarch_info,
@@ -324,9 +326,15 @@ where
                 }
             }
             MenuEntry::Settings => {
-                RetroArchCommand::Unpause.send().await?;
-                RetroArchCommand::MenuToggle.send().await?;
-                commands.send(Command::Exit).await?;
+                // Detect Play by checking for its state file.
+                let play_state = common::constants::ALLIUM_BASE_DIR.join("state").join("play.json");
+                if play_state.exists() {
+                    self.play_menu = Some(crate::view::PlayMenu::new(self.rect, self.res.clone()));
+                } else {
+                    RetroArchCommand::Unpause.send().await?;
+                    RetroArchCommand::MenuToggle.send().await?;
+                    commands.send(Command::Exit).await?;
+                }
             }
             MenuEntry::Quit => {
                 if self.retroarch_info.is_some() {
@@ -426,7 +434,9 @@ where
 
         drawn |= self.name.should_draw() && self.name.draw(display, styles)?;
         drawn |= self.status_bar.should_draw() && self.status_bar.draw(display, styles)?;
-        if let Some(selector) = &mut self.guide_selector {
+        if let Some(play_menu) = &mut self.play_menu {
+            drawn |= play_menu.draw(display, styles)?;
+        } else if let Some(selector) = &mut self.guide_selector {
             drawn |= selector.should_draw() && selector.draw(display, styles)?;
         } else {
             drawn |= self.menu.should_draw() && self.menu.draw(display, styles)?;
@@ -448,7 +458,9 @@ where
     fn should_draw(&self) -> bool {
         self.name.should_draw()
             || self.status_bar.should_draw()
-            || if let Some(selector) = &self.guide_selector {
+            || if let Some(play_menu) = &self.play_menu {
+                play_menu.should_draw()
+            } else if let Some(selector) = &self.guide_selector {
                 selector.should_draw()
             } else {
                 self.menu.should_draw()
@@ -460,7 +472,9 @@ where
     fn set_should_draw(&mut self) {
         self.name.set_should_draw();
         self.status_bar.set_should_draw();
-        if let Some(selector) = &mut self.guide_selector {
+        if let Some(play_menu) = &mut self.play_menu {
+            play_menu.set_should_draw();
+        } else if let Some(selector) = &mut self.guide_selector {
             selector.set_should_draw();
         } else {
             self.menu.set_should_draw();
@@ -477,6 +491,22 @@ where
     ) -> Result<bool> {
         if event == KeyEvent::Pressed(Key::Menu) {
             commands.send(Command::Exit).await?;
+            return Ok(true);
+        }
+
+        if let Some(play_menu) = &mut self.play_menu
+            && play_menu
+                .handle_key_event(event, commands.clone(), bubble)
+                .await?
+        {
+            bubble.retain(|cmd| match cmd {
+                Command::CloseView => {
+                    self.play_menu = None;
+                    self.set_should_draw();
+                    false
+                }
+                _ => true,
+            });
             return Ok(true);
         }
 
@@ -622,7 +652,9 @@ where
 
     fn children(&self) -> Vec<&dyn View> {
         let mut children: Vec<&dyn View> = vec![&self.name, &self.status_bar, &self.button_hints];
-        if let Some(selector) = &self.guide_selector {
+        if let Some(play_menu) = &self.play_menu {
+            children.push(play_menu);
+        } else if let Some(selector) = &self.guide_selector {
             children.push(selector);
         } else {
             children.push(&self.menu);
@@ -634,7 +666,9 @@ where
     fn children_mut(&mut self) -> Vec<&mut dyn View> {
         let mut children: Vec<&mut dyn View> =
             vec![&mut self.name, &mut self.status_bar, &mut self.button_hints];
-        if let Some(selector) = &mut self.guide_selector {
+        if let Some(play_menu) = &mut self.play_menu {
+            children.push(play_menu);
+        } else if let Some(selector) = &mut self.guide_selector {
             children.push(selector);
         } else {
             children.push(&mut self.menu);

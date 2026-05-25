@@ -28,8 +28,38 @@ use platform::{DefaultPlatform, init_logging};
 use video::frame_interval;
 use commands::ControlEvent;
 
+/// RAII guard that writes a state marker file on creation and removes it on drop.
+struct PlayStateGuard {
+    path: std::path::PathBuf,
+}
+
+impl PlayStateGuard {
+    fn new(path: &std::path::Path) -> Self {
+        let core_id = std::env::var("ALLIUM_CORE_ID").unwrap_or_else(|_| "unknown".to_string());
+        let content = format!("{{\"core_id\":\"{}\"}}\n", core_id);
+        if let Err(e) = std::fs::write(path, content) {
+            log::warn!("Failed to write play state file: {}", e);
+        }
+        Self { path: path.to_path_buf() }
+    }
+}
+
+impl Drop for PlayStateGuard {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(&self.path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("Failed to remove play state file: {}", e);
+            }
+        }
+    }
+}
+
 fn main() -> Result<()> {
     init_logging()?;
+
+    let state_path = common::constants::ALLIUM_BASE_DIR.join("state").join("play.json");
+    std::fs::create_dir_all(state_path.parent().unwrap_or_else(|| std::path::Path::new("")))?;
+    let _guard = PlayStateGuard::new(&state_path);
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
