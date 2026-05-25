@@ -49,6 +49,17 @@ pub enum RetroArchCommand {
     SetStateSlot(i8),
     SaveStateSlot(i8),
     LoadStateSlot(i8),
+    // Play-specific settings commands (not understood by RetroArch).
+    SetScale(String),
+    SetEffect(String),
+    SetSharpness(String),
+    SetTearing(String),
+    SetOverclock(String),
+    SetThreadVideo(bool),
+    SetDebugHUD(bool),
+    SetMaxFF(u8),
+    SetCoreOption { key: String, value: String },
+    ReloadConfig,
 }
 
 impl RetroArchCommand {
@@ -136,6 +147,16 @@ impl RetroArchCommand {
             RetroArchCommand::SetStateSlot(slot) => Cow::Owned(format!("SET_STATE_SLOT {slot}")),
             RetroArchCommand::SaveStateSlot(slot) => Cow::Owned(format!("SAVE_STATE_SLOT {slot}")),
             RetroArchCommand::LoadStateSlot(slot) => Cow::Owned(format!("LOAD_STATE_SLOT {slot}")),
+            RetroArchCommand::SetScale(mode) => Cow::Owned(format!("SET_SCALE {mode}")),
+            RetroArchCommand::SetEffect(mode) => Cow::Owned(format!("SET_EFFECT {mode}")),
+            RetroArchCommand::SetSharpness(mode) => Cow::Owned(format!("SET_SHARPNESS {mode}")),
+            RetroArchCommand::SetTearing(mode) => Cow::Owned(format!("SET_TEARING {mode}")),
+            RetroArchCommand::SetOverclock(mode) => Cow::Owned(format!("SET_OVERCLOCK {mode}")),
+            RetroArchCommand::SetThreadVideo(enabled) => Cow::Owned(format!("SET_THREAD_VIDEO {enabled}")),
+            RetroArchCommand::SetDebugHUD(enabled) => Cow::Owned(format!("SET_DEBUG_HUD {enabled}")),
+            RetroArchCommand::SetMaxFF(speed) => Cow::Owned(format!("SET_MAX_FF {speed}")),
+            RetroArchCommand::SetCoreOption { key, value } => Cow::Owned(format!("SET_CORE_OPTION {key} {value}")),
+            RetroArchCommand::ReloadConfig => Cow::Borrowed("RELOAD_CONFIG"),
         }
     }
 }
@@ -214,6 +235,29 @@ impl std::str::FromStr for RetroArchCommand {
                     .ok_or("Invalid slot")?;
                 Ok(RetroArchCommand::LoadStateSlot(slot))
             }
+            "SET_SCALE" => Ok(RetroArchCommand::SetScale(parts.get(1).unwrap_or(&"aspect").to_string())),
+            "SET_EFFECT" => Ok(RetroArchCommand::SetEffect(parts.get(1).unwrap_or(&"none").to_string())),
+            "SET_SHARPNESS" => Ok(RetroArchCommand::SetSharpness(parts.get(1).unwrap_or(&"soft").to_string())),
+            "SET_TEARING" => Ok(RetroArchCommand::SetTearing(parts.get(1).unwrap_or(&"lenient").to_string())),
+            "SET_OVERCLOCK" => Ok(RetroArchCommand::SetOverclock(parts.get(1).unwrap_or(&"normal").to_string())),
+            "SET_THREAD_VIDEO" => {
+                let enabled = parts.get(1).map(|s| *s == "true" || *s == "1").unwrap_or(true);
+                Ok(RetroArchCommand::SetThreadVideo(enabled))
+            }
+            "SET_DEBUG_HUD" => {
+                let enabled = parts.get(1).map(|s| *s == "true" || *s == "1").unwrap_or(true);
+                Ok(RetroArchCommand::SetDebugHUD(enabled))
+            }
+            "SET_MAX_FF" => {
+                let speed = parts.get(1).and_then(|s| s.parse().ok()).ok_or("Invalid speed")?;
+                Ok(RetroArchCommand::SetMaxFF(speed))
+            }
+            "SET_CORE_OPTION" => {
+                let key = parts.get(1).ok_or("Missing key")?.to_string();
+                let value = parts.get(2).ok_or("Missing value")?.to_string();
+                Ok(RetroArchCommand::SetCoreOption { key, value })
+            }
+            "RELOAD_CONFIG" => Ok(RetroArchCommand::ReloadConfig),
             _ => Err(format!("Unknown command: {}", parts[0])),
         }
     }
@@ -237,6 +281,50 @@ mod tests {
         assert!(matches!(
             RetroArchCommand::from_str("SET_STATE_SLOT 1"),
             Ok(RetroArchCommand::SetStateSlot(1))
+        ));
+    }
+
+    #[test]
+    fn test_parse_settings_commands() {
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_SCALE native"),
+            Ok(RetroArchCommand::SetScale(ref s)) if s == "native"
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_EFFECT grid"),
+            Ok(RetroArchCommand::SetEffect(ref s)) if s == "grid"
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_SHARPNESS sharp"),
+            Ok(RetroArchCommand::SetSharpness(ref s)) if s == "sharp"
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_TEARING strict"),
+            Ok(RetroArchCommand::SetTearing(ref s)) if s == "strict"
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_OVERCLOCK performance"),
+            Ok(RetroArchCommand::SetOverclock(ref s)) if s == "performance"
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_THREAD_VIDEO true"),
+            Ok(RetroArchCommand::SetThreadVideo(true))
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_DEBUG_HUD false"),
+            Ok(RetroArchCommand::SetDebugHUD(false))
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_MAX_FF 4"),
+            Ok(RetroArchCommand::SetMaxFF(4))
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("SET_CORE_OPTION gambatte_gb_colorization internal"),
+            Ok(RetroArchCommand::SetCoreOption { ref key, ref value }) if key == "gambatte_gb_colorization" && value == "internal"
+        ));
+        assert!(matches!(
+            RetroArchCommand::from_str("RELOAD_CONFIG"),
+            Ok(RetroArchCommand::ReloadConfig)
         ));
     }
 

@@ -465,6 +465,37 @@ impl ActiveSession {
                 info!("Selected scale mode: {:?}", self.scale_mode);
                 self.apply_scale(drv)?;
             }
+            // Settings events (Stage S1 — logged but not fully applied until S3)
+            ControlEvent::SetScale(mode) => {
+                info!("TODO apply SET_SCALE: {}", mode);
+            }
+            ControlEvent::SetEffect(mode) => {
+                info!("TODO apply SET_EFFECT: {}", mode);
+            }
+            ControlEvent::SetSharpness(mode) => {
+                info!("TODO apply SET_SHARPNESS: {}", mode);
+            }
+            ControlEvent::SetTearing(mode) => {
+                info!("TODO apply SET_TEARING: {}", mode);
+            }
+            ControlEvent::SetOverclock(mode) => {
+                info!("TODO apply SET_OVERCLOCK: {}", mode);
+            }
+            ControlEvent::SetThreadVideo(enabled) => {
+                info!("TODO apply SET_THREAD_VIDEO: {}", enabled);
+            }
+            ControlEvent::SetDebugHUD(enabled) => {
+                info!("TODO apply SET_DEBUG_HUD: {}", enabled);
+            }
+            ControlEvent::SetMaxFF(speed) => {
+                info!("TODO apply SET_MAX_FF: {}", speed);
+            }
+            ControlEvent::SetCoreOption { key, value } => {
+                info!("TODO apply SET_CORE_OPTION: {} = {}", key, value);
+            }
+            ControlEvent::ReloadConfig => {
+                info!("TODO apply RELOAD_CONFIG");
+            }
         }
         Ok(())
     }

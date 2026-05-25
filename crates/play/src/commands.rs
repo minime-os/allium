@@ -5,7 +5,7 @@ use log::{debug, warn};
 use std::sync::Arc;
 
 #[cfg_attr(not(feature = "simulator"), allow(dead_code))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlEvent {
     SaveState,
     LoadState,
@@ -21,6 +21,17 @@ pub enum ControlEvent {
     Reset,
     Quit,
     CycleScale,
+    // Settings events (S1)
+    SetScale(String),
+    SetEffect(String),
+    SetSharpness(String),
+    SetTearing(String),
+    SetOverclock(String),
+    SetThreadVideo(bool),
+    SetDebugHUD(bool),
+    SetMaxFF(u8),
+    SetCoreOption { key: String, value: String },
+    ReloadConfig,
 }
 
 impl ControlEvent {
@@ -43,6 +54,16 @@ impl ControlEvent {
             C::Reset => Some(Self::Reset),
             C::Quit => Some(Self::Quit),
             C::ShaderNext => Some(Self::CycleScale),
+            C::SetScale(mode) => Some(Self::SetScale(mode)),
+            C::SetEffect(mode) => Some(Self::SetEffect(mode)),
+            C::SetSharpness(mode) => Some(Self::SetSharpness(mode)),
+            C::SetTearing(mode) => Some(Self::SetTearing(mode)),
+            C::SetOverclock(mode) => Some(Self::SetOverclock(mode)),
+            C::SetThreadVideo(enabled) => Some(Self::SetThreadVideo(enabled)),
+            C::SetDebugHUD(enabled) => Some(Self::SetDebugHUD(enabled)),
+            C::SetMaxFF(speed) => Some(Self::SetMaxFF(speed)),
+            C::SetCoreOption { key, value } => Some(Self::SetCoreOption { key, value }),
+            C::ReloadConfig => Some(Self::ReloadConfig),
             _ => None,
         }
     }
@@ -142,6 +163,56 @@ mod tests {
         assert_eq!(
             ControlEvent::from_retroarch_command(RetroArchCommand::SaveStateSlot(-1)),
             Some(ControlEvent::SaveStateSlot(-1))
+        );
+    }
+
+    #[test]
+    fn maps_settings_commands_to_control_events() {
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetScale("native".to_string())),
+            Some(ControlEvent::SetScale("native".to_string()))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetEffect("grid".to_string())),
+            Some(ControlEvent::SetEffect("grid".to_string()))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetSharpness("sharp".to_string())),
+            Some(ControlEvent::SetSharpness("sharp".to_string()))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetTearing("strict".to_string())),
+            Some(ControlEvent::SetTearing("strict".to_string()))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetOverclock("performance".to_string())),
+            Some(ControlEvent::SetOverclock("performance".to_string()))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetThreadVideo(true)),
+            Some(ControlEvent::SetThreadVideo(true))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetDebugHUD(false)),
+            Some(ControlEvent::SetDebugHUD(false))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetMaxFF(4)),
+            Some(ControlEvent::SetMaxFF(4))
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetCoreOption {
+                key: "gambatte_gb_colorization".to_string(),
+                value: "internal".to_string(),
+            }),
+            Some(ControlEvent::SetCoreOption {
+                key: "gambatte_gb_colorization".to_string(),
+                value: "internal".to_string(),
+            })
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::ReloadConfig),
+            Some(ControlEvent::ReloadConfig)
         );
     }
 
