@@ -1,7 +1,7 @@
 // Miyoo-specific framebuffer presentation logic.
 // This module writes raw pixels directly to the physical /dev/fb0 framebuffer.
 
-use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect, rgb565_to_bgra8888};
+use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect, rgb565_to_bgra8888, apply_rgb565_effect};
 use crate::settings::{ScreenEffect, ScreenSharpness};
 use crate::video::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
@@ -25,6 +25,8 @@ pub struct MiyooVideo {
     rect: ScaleRect,
     effect: ScreenEffect,
     sharpness: ScreenSharpness,
+    /// Integer scale factor (1–4) when ScaleMode::Native, None otherwise.
+    scale_factor: Option<u32>,
 }
 
 #[derive(Clone, Copy)]
@@ -51,23 +53,32 @@ impl MiyooVideo {
             width, height, pitch, fb.var_screen_info.bits_per_pixel
         );
         fb.frame.fill(0);
-        Ok(Self { fb, pitch, height, format, rect, effect: ScreenEffect::None, sharpness: ScreenSharpness::Soft })
+        Ok(Self { fb, pitch, height, format, rect, effect: ScreenEffect::None, sharpness: ScreenSharpness::Soft, scale_factor: None })
     }
 
     fn width(&self) -> u32 {
         self.fb.var_screen_info.xres
     }
 
-    fn scale_to_fb(&mut self, frame: &CapturedFrame, fmt: VideoFrameFormat) -> Result<()> {
+    fn scale_to_fb(&mut self,
+        frame: &CapturedFrame,
+        fmt: VideoFrameFormat,
+    ) -> Result<()> {
         match (self.format, fmt) {
             (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Rgb565) => {
-                scale_rgb565_to_rgb565(frame, &mut self.fb.frame, self.pitch, self.height, self.rect)
+                scale_rgb565_to_rgb565(
+                    frame, &mut self.fb.frame, self.pitch, self.height, self.rect,
+                    self.effect, self.scale_factor,
+                )
             }
             (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Xrgb8888) => {
                 Err(anyhow!("Miyoo 16-bit framebuffer does not support XRGB8888 frames"))
             }
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Rgb565) => {
-                scale_rgb565_to_bgra8888(frame, &mut self.fb.frame, self.pitch, self.height, self.rect)
+                scale_rgb565_to_bgra8888(
+                    frame, &mut self.fb.frame, self.pitch, self.height, self.rect,
+                    self.effect, self.scale_factor,
+                )
             }
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Xrgb8888) => {
                 scale_xrgb8888_to_bgra8888(frame, &mut self.fb.frame, self.pitch, self.height, self.rect)
@@ -101,6 +112,13 @@ impl MiyooVideo {
             self.width(),
             self.height,
         )?;
+        self.scale_factor = if mode == ScaleMode::Native {
+            let sx = self.width() / source_width;
+            let sy = self.height / source_height;
+            Some(sx.min(sy).max(1))
+        } else {
+            None
+        };
         self.fb.frame.fill(0);
         Ok(())
     }
@@ -141,33 +159,35 @@ fn scale_rgb565_row(
     dst_y: u32,
     src_y: usize,
     step_x: u32,
+    effect: ScreenEffect,
+    scale_factor: Option<u32>,
 ) {
-    // Access raw input data directly to bypass bounds check for maximum CPU throughput.
     let src_ptr = unsafe { (frame.data.as_ptr() as *const u16).add(src_y * (frame.pitch / 2)) };
-    // Miyoo framebuffer is vertically flipped relative to typical capture buffers, so
-    // we reverse the y index here to present it upright.
     let out_row = unsafe { out.add((out_h - 1 - rect.y - dst_y) as usize * out_pitch_px) };
     let mut fp_x = 0;
     for dst_x in 0..rect.width {
         let src_x = (fp_x >> 16) as usize;
         fp_x += step_x;
         let pixel = unsafe { *src_ptr.add(src_x) };
+        let pixel = if let Some(scale) = scale_factor {
+            apply_rgb565_effect(pixel, effect, scale, dst_x, dst_y)
+        } else {
+            pixel
+        };
         let out_x = (rect.x + rect.width - 1 - dst_x) as usize;
         unsafe { *out_row.add(out_x) = pixel; }
     }
 }
 
-/// Scaling routine optimized for Miyoo hardware to bypass memory bandwidth limits
-/// by directly scaling to the framebuffer, avoiding clearing or allocations.
 pub fn scale_rgb565_to_rgb565(
     frame: &CapturedFrame,
     output: &mut [u8],
     output_pitch: usize,
     output_height: u32,
     rect: ScaleRect,
+    effect: ScreenEffect,
+    scale_factor: Option<u32>,
 ) -> Result<()> {
-    // Validate inputs upfront so that subsequent unsafe operations are guaranteed
-    // to be memory-safe and won't cause segfaults.
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
     validate_scaled_byte_output(output, output_pitch, output_height, rect, RGB565_BYTES_PER_PIXEL)?;
     let step_x = ((frame.width as u32) << 16) / rect.width;
@@ -178,14 +198,11 @@ pub fn scale_rgb565_to_rgb565(
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_rgb565_row(frame, out_ptr, out_pitch_px, output_height, rect, dst_y, src_y, step_x);
+        scale_rgb565_row(frame, out_ptr, out_pitch_px, output_height, rect, dst_y, src_y, step_x, effect, scale_factor);
     }
     Ok(())
 }
 
-/// Specialized pixel conversion and scaling that maps RGB565 input to 32-bit BGRA
-/// output, utilizing single-word 32-bit writes to bypass per-channel memory stores
-/// and applying bitwise approximations instead of division to scale colors.
 fn scale_rgb565_to_bgra8888_row(
     frame: &CapturedFrame,
     out: *mut u32,
@@ -195,32 +212,36 @@ fn scale_rgb565_to_bgra8888_row(
     dst_y: u32,
     src_y: usize,
     step_x: u32,
+    effect: ScreenEffect,
+    scale_factor: Option<u32>,
 ) {
-    // Access input pixels as 16-bit values and cast to 32-bit to compute scaling factor.
     let src_ptr = unsafe { (frame.data.as_ptr() as *const u16).add(src_y * (frame.pitch / 2)) };
-    // Handle the upside-down layout of the Miyoo LCD framebuffer relative to the console frame.
     let out_row = unsafe { out.add((out_h - 1 - rect.y - dst_y) as usize * out_pitch_px) };
     let mut fp_x = 0;
     for dst_x in 0..rect.width {
         let src_x = (fp_x >> 16) as usize;
         fp_x += step_x;
         let pixel = unsafe { *src_ptr.add(src_x) };
+        let pixel = if let Some(scale) = scale_factor {
+            apply_rgb565_effect(pixel, effect, scale, dst_x, dst_y)
+        } else {
+            pixel
+        };
         let bgra = rgb565_to_bgra8888(pixel);
         let out_x = (rect.x + rect.width - 1 - dst_x) as usize;
         unsafe { *out_row.add(out_x) = bgra; }
     }
 }
 
-/// Scaling routine optimized for Miyoo hardware to bypass memory bandwidth limits
-/// by directly scaling to the 32-bit framebuffer, avoiding clearing or allocations.
 pub fn scale_rgb565_to_bgra8888(
     frame: &CapturedFrame,
     output: &mut [u8],
     output_pitch: usize,
     output_height: u32,
     rect: ScaleRect,
+    effect: ScreenEffect,
+    scale_factor: Option<u32>,
 ) -> Result<()> {
-    // Perform boundary checks once before entering the critical performance loop.
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
     validate_scaled_byte_output(output, output_pitch, output_height, rect, BGRA8888_BYTES_PER_PIXEL)?;
     let step_x = ((frame.width as u32) << 16) / rect.width;
@@ -231,7 +252,7 @@ pub fn scale_rgb565_to_bgra8888(
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_rgb565_to_bgra8888_row(frame, out_ptr, out_pitch_px, output_height, rect, dst_y, src_y, step_x);
+        scale_rgb565_to_bgra8888_row(frame, out_ptr, out_pitch_px, output_height, rect, dst_y, src_y, step_x, effect, scale_factor);
     }
     Ok(())
 }
@@ -332,6 +353,8 @@ mod tests {
                 width: 1,
                 height: 2,
             },
+            crate::settings::ScreenEffect::None,
+            None,
         )
         .unwrap();
 

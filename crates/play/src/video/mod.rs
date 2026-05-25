@@ -1,11 +1,13 @@
 // Video output abstractions: frame formats, scaling, and pixel conversion tables.
 
+pub mod effects;
 pub mod pixel;
 pub mod scale;
 
 use std::time::Duration;
 use anyhow::{Result, anyhow};
 
+pub use effects::{apply_rgb565_effect, weight3_1_rgb565};
 pub use pixel::rgb565_to_bgra8888;
 pub use pixel::rgb565_to_rgb;
 pub use scale::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
