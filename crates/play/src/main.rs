@@ -264,6 +264,12 @@ where
     F: std::future::Future<Output = std::io::Result<()>>,
     S: std::future::Future<Output = ()>,
 {
+    // When the core is already behind schedule, skip the async select machinery
+    // to avoid tokio::sleep_until overhead on every late frame.
+    if tokio::time::Instant::now() >= deadline {
+        return LoopWait::Frame;
+    }
+
     tokio::select! {
         _ = tokio::time::sleep_until(deadline) => LoopWait::Frame,
         _ = ctrl_c.as_mut() => LoopWait::Signal,

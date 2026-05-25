@@ -6,7 +6,7 @@ use crate::hud::HudState;
 use crate::input::JoypadState;
 use crate::paths::PlayPaths;
 use crate::save;
-use crate::video::{ScaleMode, CapturedFrame, VideoFrameFormat};
+use crate::video::{ScaleMode, CapturedFrame, VideoFrameFormat, FrameData};
 use crate::unzip;
 use crate::content;
 use anyhow::{Context, Result, anyhow};
@@ -73,8 +73,11 @@ impl Core {
         let symbols = unsafe { CoreSymbols::load(&lib)? };
         symbols.check_api_version()?;
         symbols.install_callbacks();
-        symbols.init();
         Ok(Self { lib, symbols })
+    }
+
+    pub fn init(&self) {
+        self.symbols.init();
     }
 }
 
@@ -287,11 +290,14 @@ pub struct ActiveSession {
     pub hud_state: HudState,
     pub host_cpu: f64,
     pub captured_frame: CapturedFrame,
+    /// Raw pointer from the most recent libretro video_refresh callback.
+    /// Only valid between the callback and the next retro_run() call.
+    pub(crate) last_raw_frame: Option<(*const u8, u32, u32, usize)>,
     pub resolved_rom: unzip::ResolvedRom,
 }
 
 impl ActiveSession {
-    pub fn new(ctx: PlayContext) -> Result<(Self, crate::audio::AudioConsumer)> {
+    pub fn new_bare(ctx: PlayContext) -> Result<(Self, crate::audio::AudioConsumer)> {
         std::fs::create_dir_all(&ctx.paths.config_dir)?;
         std::fs::create_dir_all(&ctx.paths.save_dir)?;
 
@@ -299,27 +305,10 @@ impl ActiveSession {
         let info = core.get_system_info();
         info!("Core loaded: {} ({})", info.library_name, info.library_version);
         info!("Extensions: {}", info.valid_extensions);
+        info!("need_fullpath={}, block_extract={}", info.need_fullpath, info.block_extract);
 
         let (game_info, resolved, _rom_data, _rom_path) =
             content::resolve_and_prepare_rom(&ctx.paths, &info)?;
-        core.load_game(&game_info)?;
-
-        save::load_sram(&core, &ctx.paths)?;
-        if ctx.config.autoload {
-            if let Err(err) = save::load_state_slot(&core, &ctx.paths, -1) {
-                debug!("Autosave autoload skipped: {}", err);
-            }
-        }
-
-        let av_info = core.get_system_av_info();
-        info!(
-            "AV Info: {}x{} @ {} fps, sample_rate: {}",
-            av_info.geometry.base_width, av_info.geometry.base_height,
-            av_info.timing.fps, av_info.timing.sample_rate
-        );
-
-        let sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
-        let (prod, cons) = AudioQueue::for_sample_rate(sample_rate);
 
         let hud = ctx.args.hud || ctx.config.hud || std::env::var("ALLIUM_HUD").is_ok();
         let resolved_rom = resolved.unwrap_or_else(|| unzip::ResolvedRom {
@@ -327,12 +316,17 @@ impl ActiveSession {
             extracted_dir: None,
         });
 
-        let session = Self {
+        let (temp_prod, _) = AudioQueue::for_sample_rate(48000);
+
+        let mut session = Self {
             ctx,
             core,
-            av_info,
+            av_info: retro_system_av_info {
+                geometry: retro_game_geometry { base_width: 0, base_height: 0, max_width: 0, max_height: 0, aspect_ratio: 0.0 },
+                timing: retro_system_timing { fps: 0.0, sample_rate: 0.0 },
+            },
             pixel_format: VideoFrameFormat::Rgb565,
-            audio_producer: prod,
+            audio_producer: temp_prod,
             joypad_state: JoypadState::new(),
             fast_forwarding: false,
             paused: false,
@@ -342,10 +336,43 @@ impl ActiveSession {
             command_state: CommandState::new(0),
             hud_state: HudState::new(hud),
             host_cpu: 0.0,
-            captured_frame: CapturedFrame::new(Vec::new(), 0, 0, 0),
+            captured_frame: CapturedFrame::new_empty(),
+            last_raw_frame: None,
             resolved_rom,
         };
+
+        unsafe {
+            crate::core::set_handler(&mut session);
+        }
+
+        session.core.init();
+        session.core.load_game(&game_info)?;
+
+        save::load_sram(&session.core, &session.ctx.paths)?;
+        if session.ctx.config.autoload {
+            if let Err(err) = save::load_state_slot(&session.core, &session.ctx.paths, -1) {
+                debug!("Autosave autoload skipped: {}", err);
+            }
+        }
+
+        let av_info = session.core.get_system_av_info();
+        info!(
+            "AV Info: {}x{} @ {} fps, sample_rate: {}",
+            av_info.geometry.base_width, av_info.geometry.base_height,
+            av_info.timing.fps, av_info.timing.sample_rate
+        );
+
+        let sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
+        let (prod, cons) = AudioQueue::for_sample_rate(sample_rate);
+
+        session.av_info = av_info;
+        session.audio_producer = prod;
+
         Ok((session, cons))
+    }
+    pub fn new(_ctx: PlayContext) -> Result<(Self, crate::audio::AudioConsumer)> {
+        // Kept for backward compat during refactor; delegates to new_bare.
+        Self::new_bare(_ctx)
     }
 
     pub fn emulate_single_frame(&mut self,
@@ -359,12 +386,28 @@ impl ActiveSession {
     }
 
     pub fn present_captured_frame(
-        &self,
+        &mut self,
         drv: &mut crate::platform::DefaultPlatform,
     ) -> Result<bool> {
         if self.paused && drv.skip_presentation_when_paused() {
             return Ok(false);
         }
+
+        // When HUD is off, present directly from the libretro callback buffer
+        // to avoid the ~0.1–0.2 ms per-frame copy into captured_frame.data.
+        if let Some((ptr, width, height, pitch)) = self.last_raw_frame.take() {
+            let borrowed_data = unsafe {
+                std::slice::from_raw_parts(ptr, height as usize * pitch)
+            };
+            let view = CapturedFrame::new(
+                FrameData::borrowed(borrowed_data.as_ptr(), borrowed_data.len()),
+                width,
+                height,
+                pitch,
+            );
+            return Ok(drv.video.present(&view, self.pixel_format)?);
+        }
+
         if self.captured_frame.width == 0 {
             return Ok(false);
         }
@@ -460,7 +503,7 @@ impl Drop for ActiveSession {
 impl ActiveSession {
     pub(crate) fn on_environment(&mut self, cmd: c_uint, data: *mut c_void,
     ) -> bool {
-        match cmd {
+        let result = match cmd {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => self.set_pixel_format(data),
             RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.ctx.system_dir),
             RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => self.write_env_path(data, &self.ctx.save_dir),
@@ -468,7 +511,9 @@ impl ActiveSession {
             RETRO_ENVIRONMENT_GET_CAN_DUPE => self.write_env_bool(data, true),
             RETRO_ENVIRONMENT_SET_MESSAGE => self.set_message(data),
             _ => self.handle_unsupported_env(cmd, data),
-        }
+        };
+        debug!("env cmd={cmd} result={result}");
+        result
     }
 
     pub(crate) fn on_video_refresh(
@@ -478,9 +523,17 @@ impl ActiveSession {
         height: c_uint,
         pitch: usize,
     ) {
-        if !data.is_null() {
+        if data.is_null() {
+            return;
+        }
+
+        // Store the raw pointer so we can present directly from it when HUD is off.
+        self.last_raw_frame = Some((data as *const u8, width, height, pitch));
+        self.hud_state.tick_fps();
+
+        // Only copy and draw HUD when the overlay is actually enabled.
+        if self.hud_state.is_enabled() {
             self.copy_refresh_frame(data, width, height, pitch);
-            self.hud_state.tick_fps();
             self.draw_refresh_hud(width, height, pitch);
         }
     }
@@ -547,14 +600,25 @@ impl ActiveSession {
     ) {
         let size = pitch * height as usize;
         let frame = &mut self.captured_frame;
-        if frame.data.len() != size {
-            frame.data.resize(size, 0);
-        }
         frame.width = width;
         frame.height = height;
         frame.pitch = pitch;
-        unsafe {
-            ptr::copy_nonoverlapping(data as *const u8, frame.data.as_mut_ptr(), size);
+
+        // Ensure we have an owned buffer of the right size.
+        let needs_new = match &frame.data {
+            FrameData::Owned(v) => v.len() != size,
+            FrameData::Borrowed { .. } => true,
+        };
+        if needs_new {
+            frame.data = FrameData::Owned(vec![0; size]);
+        }
+
+        if let FrameData::Owned(v) = &mut frame.data {
+            unsafe {
+                ptr::copy_nonoverlapping(data as *const u8, v.as_mut_ptr(), size);
+            }
+        } else {
+            unreachable!("copy_refresh_frame: data should be Owned after sizing");
         }
     }
 

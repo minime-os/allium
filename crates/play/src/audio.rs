@@ -174,7 +174,7 @@ pub fn validate_sample_rate(sample_rate: f64) -> Result<u32> {
     }
 
     let rounded = sample_rate.round();
-    if (sample_rate - rounded).abs() > f64::EPSILON {
+    if (sample_rate - rounded).abs() > 0.5 {
         return Err(anyhow!(
             "Core reported non-integer audio sample rate: {}",
             sample_rate

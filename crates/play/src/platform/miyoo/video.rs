@@ -1,7 +1,7 @@
 // Miyoo-specific framebuffer presentation logic.
 // This module writes raw pixels directly to the physical /dev/fb0 framebuffer.
 
-use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
+use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect, rgb565_to_bgra8888};
 use crate::video::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
     validate_frame,
@@ -193,12 +193,8 @@ fn scale_rgb565_to_bgra8888_row(
     for dst_x in 0..rect.width {
         let src_x = (fp_x >> 16) as usize;
         fp_x += step_x;
-        let pixel = unsafe { *src_ptr.add(src_x) } as u32;
-        let r = (pixel >> 11) & 0x1f;
-        let g = (pixel >> 5) & 0x3f;
-        let b = pixel & 0x1f;
-        // Use fast shifts instead of division to extend 5/6 bits to 8 bits.
-        let bgra = (0xff << 24) | (((r << 3) | (r >> 2)) << 16) | (((g << 2) | (g >> 4)) << 8) | ((b << 3) | (b >> 2));
+        let pixel = unsafe { *src_ptr.add(src_x) };
+        let bgra = rgb565_to_bgra8888(pixel);
         let out_x = (rect.x + rect.width - 1 - dst_x) as usize;
         unsafe { *out_row.add(out_x) = bgra; }
     }
