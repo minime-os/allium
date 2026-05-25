@@ -60,6 +60,8 @@ pub enum RetroArchCommand {
     SetMaxFF(u8),
     SetCoreOption { key: String, value: String },
     ReloadConfig,
+    SetControl { retro_button: String, key: String },
+    SetShortcut { action: String, combo: String },
 }
 
 impl RetroArchCommand {
@@ -157,6 +159,8 @@ impl RetroArchCommand {
             RetroArchCommand::SetMaxFF(speed) => Cow::Owned(format!("SET_MAX_FF {speed}")),
             RetroArchCommand::SetCoreOption { key, value } => Cow::Owned(format!("SET_CORE_OPTION {key} {value}")),
             RetroArchCommand::ReloadConfig => Cow::Borrowed("RELOAD_CONFIG"),
+            RetroArchCommand::SetControl { retro_button, key } => Cow::Owned(format!("SET_CONTROL {retro_button} {key}")),
+            RetroArchCommand::SetShortcut { action, combo } => Cow::Owned(format!("SET_SHORTCUT {action} {combo}")),
         }
     }
 }
@@ -258,6 +262,16 @@ impl std::str::FromStr for RetroArchCommand {
                 Ok(RetroArchCommand::SetCoreOption { key, value })
             }
             "RELOAD_CONFIG" => Ok(RetroArchCommand::ReloadConfig),
+            "SET_CONTROL" => {
+                let retro_button = parts.get(1).ok_or("Missing retro button")?.to_string();
+                let key = parts.get(2).ok_or("Missing key")?.to_string();
+                Ok(RetroArchCommand::SetControl { retro_button, key })
+            }
+            "SET_SHORTCUT" => {
+                let action = parts.get(1).ok_or("Missing action")?.to_string();
+                let combo = parts.get(2).ok_or("Missing combo")?.to_string();
+                Ok(RetroArchCommand::SetShortcut { action, combo })
+            }
             _ => Err(format!("Unknown command: {}", parts[0])),
         }
     }

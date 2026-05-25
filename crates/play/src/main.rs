@@ -5,6 +5,7 @@ mod audio;
 mod commands;
 mod config;
 mod content;
+mod controls;
 mod core;
 mod dump;
 mod hud;
@@ -250,6 +251,29 @@ fn poll_and_apply_platform_inputs(
     drv: &mut DefaultPlatform,
 ) {
     let platform_events = drv.poll_input(&mut session.joypad_state);
+
+    // Check for shortcut combos before forwarding to core.
+    let menu_held = session.joypad_state.is_pressed(common::platform::Key::Menu);
+    let actions = session.shortcut_bindings.poll(session.joypad_state.raw_keys(), menu_held);
+    for action in actions {
+        let event = match action.as_str() {
+            "toggle_fast_forward" => Some(ControlEvent::ToggleFastForward),
+            "save_state" => Some(ControlEvent::SaveState),
+            "load_state" => Some(ControlEvent::LoadState),
+            "reset" => Some(ControlEvent::Reset),
+            "toggle_menu" => Some(ControlEvent::SetPaused(true)),
+            _ => {
+                info!("Unknown shortcut action: {}", action);
+                None
+            }
+        };
+        if let Some(ev) = event {
+            if let Err(err) = session.apply_control_event(ev, drv) {
+                warn!("Shortcut event failed: {}", err);
+            }
+        }
+    }
+
     for event in platform_events {
         if let Err(err) = session.apply_control_event(event, drv) {
             warn!("Control event failed: {}", err);

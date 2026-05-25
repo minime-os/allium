@@ -10,6 +10,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use enum_map::Enum;
 use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString};
 
 use crate::{
     battery::Battery,
@@ -78,7 +79,7 @@ pub enum KeyEvent {
     Autorepeat(Key),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Enum, Display, EnumString)]
 pub enum Key {
     Up,
     Down,

@@ -1,17 +1,22 @@
 use libretro::*;
 use common::platform::{Key, KeyEvent};
+use std::collections::HashSet;
 use std::os::raw::c_uint;
 
 const JOYPAD_BUTTONS: usize = 16;
 
+/// Tracks both default-mapped libretro button presses and raw physical key
+/// presses so that configurable controls and shortcuts can query by key.
 pub struct JoypadState {
     pressed: [bool; JOYPAD_BUTTONS],
+    raw: HashSet<Key>,
 }
 
 impl JoypadState {
     pub fn new() -> Self {
         Self {
             pressed: [false; JOYPAD_BUTTONS],
+            raw: HashSet::new(),
         }
     }
 
@@ -20,6 +25,11 @@ impl JoypadState {
             KeyEvent::Pressed(key) | KeyEvent::Autorepeat(key) => (key, true),
             KeyEvent::Released(key) => (key, false),
         };
+        if pressed {
+            self.raw.insert(key);
+        } else {
+            self.raw.remove(&key);
+        }
         let Some(id) = joypad_id_for_key(key) else {
             return;
         };
@@ -30,6 +40,7 @@ impl JoypadState {
         *button = pressed;
     }
 
+    /// Query using the default hardcoded mapping ( RetroArch compat).
     pub fn input_state(&self, port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
         if port != 0 || index != 0 || device & RETRO_DEVICE_MASK != RETRO_DEVICE_JOYPAD {
             return 0;
@@ -40,6 +51,16 @@ impl JoypadState {
             .copied()
             .map(i16::from)
             .unwrap_or(0)
+    }
+
+    /// True if this physical key is currently held.
+    pub fn is_pressed(&self, key: Key) -> bool {
+        self.raw.contains(&key)
+    }
+
+    /// Returns all currently held physical keys.
+    pub fn raw_keys(&self) -> &HashSet<Key> {
+        &self.raw
     }
 }
 

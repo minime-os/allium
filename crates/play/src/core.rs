@@ -1,6 +1,7 @@
 use libretro::*;
 use crate::config::{Args, PlayConfig};
-use crate::settings::FrontendSettings;
+use crate::controls::{ControlBindings, InputDescriptors, ShortcutBindings};
+use crate::settings::{FrontendSettings, SaveScope};
 use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::commands::{CommandState, ControlEvent};
 use crate::hud::HudState;
@@ -293,6 +294,9 @@ pub struct ActiveSession {
     pub host_cpu: f64,
     pub captured_frame: CapturedFrame,
     pub frontend_settings: FrontendSettings,
+    pub control_bindings: ControlBindings,
+    pub shortcut_bindings: ShortcutBindings,
+    pub input_descriptors: InputDescriptors,
     /// Raw pointer from the most recent libretro video_refresh callback.
     /// Only valid between the callback and the next retro_run() call.
     pub(crate) last_raw_frame: Option<(*const u8, u32, u32, usize)>,
@@ -325,6 +329,8 @@ impl ActiveSession {
             active_path: ctx.paths.rom.clone(),
             extracted_dir: None,
         });
+        let control_bindings = crate::controls::load_control_bindings(&ctx.paths);
+        let shortcut_bindings = crate::controls::load_shortcut_bindings(&ctx.paths);
 
         let (temp_prod, _) = AudioQueue::for_sample_rate(48000);
 
@@ -348,6 +354,9 @@ impl ActiveSession {
             host_cpu: 0.0,
             captured_frame: CapturedFrame::new_empty(),
             frontend_settings,
+            control_bindings,
+            shortcut_bindings,
+            input_descriptors: InputDescriptors::default(),
             last_raw_frame: None,
             resolved_rom,
         };
@@ -573,6 +582,16 @@ impl ActiveSession {
             ControlEvent::SetCoreOption { key, value } => {
                 info!("TODO apply SET_CORE_OPTION: {} = {}", key, value);
             }
+            ControlEvent::SetControl { retro_button, key } => {
+                info!("SET_CONTROL: {} -> {}", retro_button, key);
+                self.control_bindings.set(&retro_button, &key);
+                crate::controls::save_control_bindings(&self.ctx.paths, SaveScope::System, &self.control_bindings)?;
+            }
+            ControlEvent::SetShortcut { action, combo } => {
+                info!("SET_SHORTCUT: {} -> {}", action, combo);
+                self.shortcut_bindings.set(&action, &combo);
+                crate::controls::save_shortcut_bindings(&self.ctx.paths, &self.shortcut_bindings)?;
+            }
             ControlEvent::ReloadConfig => {
                 info!("RELOAD_CONFIG");
                 self.frontend_settings = settings::load_frontend_settings(&self.ctx.paths);
@@ -618,6 +637,7 @@ impl ActiveSession {
     ) -> bool {
         let result = match cmd {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => self.set_pixel_format(data),
+            RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => self.set_input_descriptors(data),
             RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.ctx.system_dir),
             RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => self.write_env_path(data, &self.ctx.save_dir),
             RETRO_ENVIRONMENT_GET_FASTFORWARDING => self.write_env_bool(data, self.fast_forwarding),
@@ -666,7 +686,27 @@ impl ActiveSession {
     pub(crate) fn on_input_poll(&mut self) {}
 
     pub(crate) fn on_input_state(&self, port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
-        self.joypad_state.input_state(port, device, index, id)
+        if port != 0 || index != 0 || device & RETRO_DEVICE_MASK != RETRO_DEVICE_JOYPAD {
+            return 0;
+        }
+        let key = self.control_bindings.key_for_retro_id(id);
+        if let Some(key) = key {
+            if self.joypad_state.is_pressed(key) {
+                return 1;
+            }
+        }
+        0
+    }
+
+    fn set_input_descriptors(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            warn!("Core requested SET_INPUT_DESCRIPTORS with null data");
+            return false;
+        }
+        let descriptors = unsafe { InputDescriptors::from_raw(data as *const libretro::retro_input_descriptor) };
+        info!("Core provided {} input descriptor(s)", descriptors.buttons.len());
+        self.input_descriptors = descriptors;
+        false // false = don't signal re-init needed
     }
 
     fn set_pixel_format(&mut self, data: *mut c_void) -> bool {

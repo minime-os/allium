@@ -32,6 +32,8 @@ pub enum ControlEvent {
     SetMaxFF(u8),
     SetCoreOption { key: String, value: String },
     ReloadConfig,
+    SetControl { retro_button: String, key: String },
+    SetShortcut { action: String, combo: String },
 }
 
 impl ControlEvent {
@@ -64,6 +66,8 @@ impl ControlEvent {
             C::SetMaxFF(speed) => Some(Self::SetMaxFF(speed)),
             C::SetCoreOption { key, value } => Some(Self::SetCoreOption { key, value }),
             C::ReloadConfig => Some(Self::ReloadConfig),
+            C::SetControl { retro_button, key } => Some(Self::SetControl { retro_button, key }),
+            C::SetShortcut { action, combo } => Some(Self::SetShortcut { action, combo }),
             _ => None,
         }
     }
