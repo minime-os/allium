@@ -12,6 +12,7 @@ mod input;
 mod paths;
 mod platform;
 mod save;
+mod settings;
 mod unzip;
 mod video;
 

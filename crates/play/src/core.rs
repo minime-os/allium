@@ -1,5 +1,6 @@
 use libretro::*;
 use crate::config::{Args, PlayConfig};
+use crate::settings::FrontendSettings;
 use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::commands::{CommandState, ControlEvent};
 use crate::hud::HudState;
@@ -9,6 +10,7 @@ use crate::save;
 use crate::video::{ScaleMode, CapturedFrame, VideoFrameFormat, FrameData};
 use crate::unzip;
 use crate::content;
+use crate::settings;
 use anyhow::{Context, Result, anyhow};
 use libloading::Library;
 use log::{debug, info, warn};
@@ -290,6 +292,7 @@ pub struct ActiveSession {
     pub hud_state: HudState,
     pub host_cpu: f64,
     pub captured_frame: CapturedFrame,
+    pub frontend_settings: FrontendSettings,
     /// Raw pointer from the most recent libretro video_refresh callback.
     /// Only valid between the callback and the next retro_run() call.
     pub(crate) last_raw_frame: Option<(*const u8, u32, u32, usize)>,
@@ -311,6 +314,13 @@ impl ActiveSession {
             content::resolve_and_prepare_rom(&ctx.paths, &info)?;
 
         let hud = ctx.args.hud || ctx.config.hud || std::env::var("ALLIUM_HUD").is_ok();
+        let frontend_settings = settings::load_frontend_settings(&ctx.paths);
+        info!(
+            "Frontend settings loaded: scale={:?}, effect={:?}, sharpness={:?}",
+            frontend_settings.scale_mode,
+            frontend_settings.effect,
+            frontend_settings.sharpness,
+        );
         let resolved_rom = resolved.unwrap_or_else(|| unzip::ResolvedRom {
             active_path: ctx.paths.rom.clone(),
             extracted_dir: None,
@@ -331,12 +341,13 @@ impl ActiveSession {
             fast_forwarding: false,
             paused: false,
             should_quit: false,
-            scale_mode: ScaleMode::Aspect,
+            scale_mode: frontend_settings.scale_mode,
             state_slot: 0,
             command_state: CommandState::new(0),
             hud_state: HudState::new(hud),
             host_cpu: 0.0,
             captured_frame: CapturedFrame::new_empty(),
+            frontend_settings,
             last_raw_frame: None,
             resolved_rom,
         };
@@ -465,36 +476,71 @@ impl ActiveSession {
                 info!("Selected scale mode: {:?}", self.scale_mode);
                 self.apply_scale(drv)?;
             }
-            // Settings events (Stage S1 — logged but not fully applied until S3)
+            // Settings events (Stage S2 — values stored; side effects wired in S3)
             ControlEvent::SetScale(mode) => {
-                info!("TODO apply SET_SCALE: {}", mode);
+                if let Ok(v) = mode.parse() {
+                    self.scale_mode = v;
+                    self.frontend_settings.scale_mode = v;
+                    info!("SET_SCALE: {:?}", v);
+                    self.apply_scale(drv)?;
+                } else {
+                    warn!("Invalid SET_SCALE: {}", mode);
+                }
             }
             ControlEvent::SetEffect(mode) => {
-                info!("TODO apply SET_EFFECT: {}", mode);
+                if let Ok(v) = mode.parse() {
+                    self.frontend_settings.effect = v;
+                    info!("SET_EFFECT: {:?} (side effect in S3)", v);
+                } else {
+                    warn!("Invalid SET_EFFECT: {}", mode);
+                }
             }
             ControlEvent::SetSharpness(mode) => {
-                info!("TODO apply SET_SHARPNESS: {}", mode);
+                if let Ok(v) = mode.parse() {
+                    self.frontend_settings.sharpness = v;
+                    info!("SET_SHARPNESS: {:?} (side effect in S3)", v);
+                } else {
+                    warn!("Invalid SET_SHARPNESS: {}", mode);
+                }
             }
             ControlEvent::SetTearing(mode) => {
-                info!("TODO apply SET_TEARING: {}", mode);
+                if let Ok(v) = mode.parse() {
+                    self.frontend_settings.tearing = v;
+                    info!("SET_TEARING: {:?} (side effect in S3)", v);
+                } else {
+                    warn!("Invalid SET_TEARING: {}", mode);
+                }
             }
             ControlEvent::SetOverclock(mode) => {
-                info!("TODO apply SET_OVERCLOCK: {}", mode);
+                if let Ok(v) = mode.parse() {
+                    self.frontend_settings.cpu_speed = v;
+                    info!("SET_OVERCLOCK: {:?} (side effect in S3)", v);
+                } else {
+                    warn!("Invalid SET_OVERCLOCK: {}", mode);
+                }
             }
             ControlEvent::SetThreadVideo(enabled) => {
-                info!("TODO apply SET_THREAD_VIDEO: {}", enabled);
+                self.frontend_settings.thread_video = enabled;
+                info!("SET_THREAD_VIDEO: {} (side effect in S3)", enabled);
             }
             ControlEvent::SetDebugHUD(enabled) => {
-                info!("TODO apply SET_DEBUG_HUD: {}", enabled);
+                self.frontend_settings.debug_hud = enabled;
+                self.hud_state.set_enabled(enabled);
+                info!("SET_DEBUG_HUD: {}", enabled);
             }
             ControlEvent::SetMaxFF(speed) => {
-                info!("TODO apply SET_MAX_FF: {}", speed);
+                self.frontend_settings.max_ff_speed = speed.min(8).max(1);
+                info!("SET_MAX_FF: {} (side effect in S3)", self.frontend_settings.max_ff_speed);
             }
             ControlEvent::SetCoreOption { key, value } => {
                 info!("TODO apply SET_CORE_OPTION: {} = {}", key, value);
             }
             ControlEvent::ReloadConfig => {
-                info!("TODO apply RELOAD_CONFIG");
+                info!("RELOAD_CONFIG");
+                self.frontend_settings = settings::load_frontend_settings(&self.ctx.paths);
+                self.scale_mode = self.frontend_settings.scale_mode;
+                self.hud_state.set_enabled(self.frontend_settings.debug_hud);
+                info!("Reloaded frontend settings: scale={:?}", self.frontend_settings.scale_mode);
             }
         }
         Ok(())

@@ -44,6 +44,10 @@ impl PlayPaths {
         self.save_dir.join(format!("{}.srm", self.rom_stem()))
     }
 
+    pub fn per_game_config_path(&self) -> PathBuf {
+        self.config_dir.join(format!("{}.toml", self.rom_stem()))
+    }
+
     pub fn state_path(&self, slot: i8) -> Result<PathBuf> {
         if !(-1..=9).contains(&slot) {
             return Err(anyhow!("Save state slot must be between 0 and 9"));

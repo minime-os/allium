@@ -30,6 +30,10 @@ impl HudState {
         self.enabled
     }
 
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
     pub fn tick_fps(&mut self) {
         self.fps_ticks += 1;
     }
