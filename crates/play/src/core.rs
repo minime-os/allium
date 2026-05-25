@@ -1,6 +1,7 @@
 use libretro::*;
 use crate::config::{Args, PlayConfig};
 use crate::controls::{ControlBindings, InputDescriptors, ShortcutBindings};
+use crate::core_options::{CoreOptions, CoreOptionsConfig};
 use crate::settings::{FrontendSettings, SaveScope};
 use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::commands::{CommandState, ControlEvent};
@@ -297,6 +298,7 @@ pub struct ActiveSession {
     pub control_bindings: ControlBindings,
     pub shortcut_bindings: ShortcutBindings,
     pub input_descriptors: InputDescriptors,
+    pub core_options: CoreOptions,
     /// Raw pointer from the most recent libretro video_refresh callback.
     /// Only valid between the callback and the next retro_run() call.
     pub(crate) last_raw_frame: Option<(*const u8, u32, u32, usize)>,
@@ -357,6 +359,7 @@ impl ActiveSession {
             control_bindings,
             shortcut_bindings,
             input_descriptors: InputDescriptors::default(),
+            core_options: CoreOptions::default(),
             last_raw_frame: None,
             resolved_rom,
         };
@@ -580,7 +583,14 @@ impl ActiveSession {
                 self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetCoreOption { key, value } => {
-                info!("TODO apply SET_CORE_OPTION: {} = {}", key, value);
+                if self.core_options.set(&key, &value) {
+                    info!("SET_CORE_OPTION: {} = {}", key, value);
+                    if let Err(e) = self.save_core_options() {
+                        warn!("Failed to save core options: {}", e);
+                    }
+                } else {
+                    info!("SET_CORE_OPTION: {} = {} (no change or invalid)", key, value);
+                }
             }
             ControlEvent::SetControl { retro_button, key } => {
                 info!("SET_CONTROL: {} -> {}", retro_button, key);
@@ -638,6 +648,12 @@ impl ActiveSession {
         let result = match cmd {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => self.set_pixel_format(data),
             RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => self.set_input_descriptors(data),
+            RETRO_ENVIRONMENT_SET_VARIABLES => self.set_variables(data),
+            RETRO_ENVIRONMENT_SET_CORE_OPTIONS => self.set_core_options(data),
+            RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2 => self.set_core_options_v2(data),
+            RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL => self.set_core_options_v2_intl(data),
+            RETRO_ENVIRONMENT_GET_VARIABLE => self.get_variable(data),
+            RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE => self.get_variable_update(data),
             RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.ctx.system_dir),
             RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => self.write_env_path(data, &self.ctx.save_dir),
             RETRO_ENVIRONMENT_GET_FASTFORWARDING => self.write_env_bool(data, self.fast_forwarding),
@@ -727,6 +743,129 @@ impl ActiveSession {
             info!("Unsupported pixel format: {format}");
             false
         }
+    }
+
+    fn set_variables(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            warn!("Core requested SET_VARIABLES with null data");
+            return false;
+        }
+        self.core_options = unsafe { CoreOptions::from_variables(data as *const libretro::retro_variable) };
+        self.load_persisted_core_options();
+        true
+    }
+
+    fn set_core_options(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            warn!("Core requested SET_CORE_OPTIONS with null data");
+            return false;
+        }
+        let ptr = unsafe { *(data as *const *const libretro::retro_core_option_definition) };
+        self.core_options = unsafe { CoreOptions::from_core_options(ptr) };
+        self.load_persisted_core_options();
+        true
+    }
+
+    fn set_core_options_v2(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            warn!("Core requested SET_CORE_OPTIONS_V2 with null data");
+            return false;
+        }
+        let ptr = unsafe { *(data as *const *const libretro::retro_core_options_v2) };
+        self.core_options = unsafe { CoreOptions::from_core_options_v2(ptr) };
+        self.load_persisted_core_options();
+        true
+    }
+
+    fn set_core_options_v2_intl(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            warn!("Core requested SET_CORE_OPTIONS_V2_INTL with null data");
+            return false;
+        }
+        let intl = unsafe { &*(data as *const libretro::retro_core_options_v2_intl) };
+        let ptr = if !intl.us.is_null() {
+            intl.us
+        } else if !intl.local.is_null() {
+            intl.local
+        } else {
+            warn!("Core provided empty SET_CORE_OPTIONS_V2_INTL");
+            return false;
+        };
+        self.core_options = unsafe { CoreOptions::from_core_options_v2(ptr) };
+        self.load_persisted_core_options();
+        true
+    }
+
+    fn set_core_options_intl(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            warn!("Core requested SET_CORE_OPTIONS_INTL with null data");
+            return false;
+        }
+        let intl = unsafe { &*(data as *const libretro::retro_core_options_intl) };
+        let ptr = if !intl.us.is_null() {
+            intl.us as *const libretro::retro_core_option_definition
+        } else if !intl.local.is_null() {
+            intl.local as *const libretro::retro_core_option_definition
+        } else {
+            warn!("Core provided empty SET_CORE_OPTIONS_INTL");
+            return false;
+        };
+        self.core_options = unsafe { CoreOptions::from_core_options(ptr) };
+        self.load_persisted_core_options();
+        true
+    }
+
+    fn get_variable(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            warn!("Core requested GET_VARIABLE with null data");
+            return false;
+        }
+        let var = unsafe { &mut *(data as *mut libretro::retro_variable) };
+        if var.key.is_null() {
+            warn!("Core requested GET_VARIABLE with null key");
+            return false;
+        }
+        let key = unsafe { std::ffi::CStr::from_ptr(var.key) }
+            .to_string_lossy()
+            .into_owned();
+        if let Some(value_ptr) = self.core_options.get_ptr(&key) {
+            var.value = value_ptr;
+            debug!("GET_VARIABLE: {} = {:?}", key, unsafe { std::ffi::CStr::from_ptr(var.value) });
+            return true;
+        }
+        warn!("Core requested unknown variable: {}", key);
+        false
+    }
+
+    fn get_variable_update(&mut self, data: *mut c_void) -> bool {
+        if data.is_null() {
+            return false;
+        }
+        let out = unsafe { &mut *(data as *mut bool) };
+        *out = self.core_options.take_dirty();
+        true
+    }
+
+    fn load_persisted_core_options(&mut self) {
+        let path = self.ctx.paths.config_dir.join("core_options.toml");
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(config) = toml::from_str::<CoreOptionsConfig>(&content) {
+                self.core_options.merge_values(&config.options);
+                info!("Loaded persisted core options from {:?}", path);
+            }
+        }
+    }
+
+    pub fn save_core_options(&self) -> Result<()> {
+        let path = self.ctx.paths.config_dir.join("core_options.toml");
+        std::fs::create_dir_all(&self.ctx.paths.config_dir).context("Failed to create config dir")?;
+        let config = CoreOptionsConfig {
+            options: self.core_options.current_values.clone(),
+        };
+        let content = toml::to_string_pretty(&config).context("Failed to serialise core options")?;
+        std::fs::write(&path, content).context("Failed to write core_options.toml")?;
+        info!("Saved core options to {:?}", path);
+        Ok(())
     }
 
     fn set_message(&self, data: *mut c_void) -> bool {

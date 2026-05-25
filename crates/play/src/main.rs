@@ -7,6 +7,7 @@ mod config;
 mod content;
 mod controls;
 mod core;
+mod core_options;
 mod dump;
 mod hud;
 mod input;
