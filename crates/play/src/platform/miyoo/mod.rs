@@ -107,7 +107,7 @@ pub fn init_logging() -> Result<()> {
     Ok(())
 }
 
-fn set_governor(governor: &str) {
+pub fn set_governor(governor: &str) {
     let path = "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor";
     if !std::path::Path::new(path).exists() {
         return;

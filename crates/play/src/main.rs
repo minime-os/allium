@@ -116,10 +116,11 @@ async fn start_main_loop(
         base_width,
         base_height,
         aspect_ratio,
-        session.ctx.args.scale,
+        session.scale_mode,
         sample_rate,
         audio_consumer,
     )?;
+    session.apply_frontend_settings(&mut drv)?;
 
     let mut frames = 0u64;
     let started_at = Instant::now();
@@ -147,8 +148,13 @@ async fn run_emulation_loop(
         if let Some(reason) = run_loop_step(session, rx, drv, frames, next_at, interval)? {
             return Ok(reason);
         }
-        if session.fast_forwarding {
+        // Fast-forward only bypasses wait when cap > 1x.
+        let ff_enabled = session.fast_forwarding && session.frontend_settings.max_ff_speed > 1;
+        if ff_enabled {
             tokio::task::yield_now().await;
+            continue;
+        }
+        if session.frontend_settings.tearing == settings::TearingMode::Off {
             continue;
         }
         let sleep = tokio::time::Instant::from_std(*next_at);
@@ -179,7 +185,11 @@ fn run_loop_step(
     if session.present_captured_frame(drv)? {
         return Ok(Some("window closed"));
     }
-    *next_at = (*next_at + interval).max(Instant::now());
+    if session.frontend_settings.tearing == settings::TearingMode::Strict {
+        *next_at += interval;
+    } else {
+        *next_at = (*next_at + interval).max(Instant::now());
+    }
     Ok(None)
 }
 

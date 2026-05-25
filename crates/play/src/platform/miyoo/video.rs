@@ -2,6 +2,7 @@
 // This module writes raw pixels directly to the physical /dev/fb0 framebuffer.
 
 use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect, rgb565_to_bgra8888};
+use crate::settings::{ScreenEffect, ScreenSharpness};
 use crate::video::{
     CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
     validate_frame,
@@ -22,6 +23,8 @@ pub struct MiyooVideo {
     height: u32,
     format: MiyooFramebufferFormat,
     rect: ScaleRect,
+    effect: ScreenEffect,
+    sharpness: ScreenSharpness,
 }
 
 #[derive(Clone, Copy)]
@@ -48,7 +51,7 @@ impl MiyooVideo {
             width, height, pitch, fb.var_screen_info.bits_per_pixel
         );
         fb.frame.fill(0);
-        Ok(Self { fb, pitch, height, format, rect })
+        Ok(Self { fb, pitch, height, format, rect, effect: ScreenEffect::None, sharpness: ScreenSharpness::Soft })
     }
 
     fn width(&self) -> u32 {
@@ -100,6 +103,14 @@ impl MiyooVideo {
         )?;
         self.fb.frame.fill(0);
         Ok(())
+    }
+
+    pub fn set_effect(&mut self, effect: ScreenEffect) {
+        self.effect = effect;
+    }
+
+    pub fn set_sharpness(&mut self, sharpness: ScreenSharpness) {
+        self.sharpness = sharpness;
     }
 }
 

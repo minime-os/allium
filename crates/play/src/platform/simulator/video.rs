@@ -56,6 +56,10 @@ impl SimulatorVideo {
         Ok(false)
     }
 
+    pub fn set_effect(&mut self, _effect: crate::settings::ScreenEffect) {}
+
+    pub fn set_sharpness(&mut self, _sharpness: crate::settings::ScreenSharpness) {}
+
     pub fn set_scale(
         &mut self,
         mode: ScaleMode,

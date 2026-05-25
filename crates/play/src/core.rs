@@ -437,6 +437,39 @@ impl ActiveSession {
         )
     }
 
+    // Apply all current frontend_settings to the running session and platform.
+    // Called after platform creation and on RELOAD_CONFIG.
+    pub fn apply_frontend_settings(&mut self, drv: &mut crate::platform::DefaultPlatform) -> Result<()> {
+        self.scale_mode = self.frontend_settings.scale_mode;
+        self.apply_scale(drv)?;
+        drv.video.set_effect(self.frontend_settings.effect);
+        drv.video.set_sharpness(self.frontend_settings.sharpness);
+        self.hud_state.set_enabled(self.frontend_settings.debug_hud);
+
+        #[cfg(feature = "miyoo")]
+        {
+            let governor = match self.frontend_settings.cpu_speed {
+                settings::CpuSpeed::Powersave => "powersave",
+                settings::CpuSpeed::Normal => "ondemand",
+                settings::CpuSpeed::Performance => "performance",
+            };
+            crate::platform::miyoo::set_governor(governor);
+        }
+
+        info!(
+            "Applied frontend settings: scale={:?} effect={:?} sharpness={:?} tearing={:?} cpu={:?} thread_video={:?} debug_hud={:?} max_ff={}",
+            self.frontend_settings.scale_mode,
+            self.frontend_settings.effect,
+            self.frontend_settings.sharpness,
+            self.frontend_settings.tearing,
+            self.frontend_settings.cpu_speed,
+            self.frontend_settings.thread_video,
+            self.frontend_settings.debug_hud,
+            self.frontend_settings.max_ff_speed,
+        );
+        Ok(())
+    }
+
     pub fn apply_control_event(&mut self,
         event: ControlEvent,
         drv: &mut crate::platform::DefaultPlatform,
@@ -476,61 +509,66 @@ impl ActiveSession {
                 info!("Selected scale mode: {:?}", self.scale_mode);
                 self.apply_scale(drv)?;
             }
-            // Settings events (Stage S2 — values stored; side effects wired in S3)
+            // Settings events (Stage S3 — stored and applied immediately)
             ControlEvent::SetScale(mode) => {
                 if let Ok(v) = mode.parse() {
-                    self.scale_mode = v;
                     self.frontend_settings.scale_mode = v;
                     info!("SET_SCALE: {:?}", v);
-                    self.apply_scale(drv)?;
                 } else {
                     warn!("Invalid SET_SCALE: {}", mode);
                 }
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetEffect(mode) => {
                 if let Ok(v) = mode.parse() {
                     self.frontend_settings.effect = v;
-                    info!("SET_EFFECT: {:?} (side effect in S3)", v);
+                    info!("SET_EFFECT: {:?}", v);
                 } else {
                     warn!("Invalid SET_EFFECT: {}", mode);
                 }
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetSharpness(mode) => {
                 if let Ok(v) = mode.parse() {
                     self.frontend_settings.sharpness = v;
-                    info!("SET_SHARPNESS: {:?} (side effect in S3)", v);
+                    info!("SET_SHARPNESS: {:?}", v);
                 } else {
                     warn!("Invalid SET_SHARPNESS: {}", mode);
                 }
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetTearing(mode) => {
                 if let Ok(v) = mode.parse() {
                     self.frontend_settings.tearing = v;
-                    info!("SET_TEARING: {:?} (side effect in S3)", v);
+                    info!("SET_TEARING: {:?}", v);
                 } else {
                     warn!("Invalid SET_TEARING: {}", mode);
                 }
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetOverclock(mode) => {
                 if let Ok(v) = mode.parse() {
                     self.frontend_settings.cpu_speed = v;
-                    info!("SET_OVERCLOCK: {:?} (side effect in S3)", v);
+                    info!("SET_OVERCLOCK: {:?}", v);
                 } else {
                     warn!("Invalid SET_OVERCLOCK: {}", mode);
                 }
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetThreadVideo(enabled) => {
                 self.frontend_settings.thread_video = enabled;
-                info!("SET_THREAD_VIDEO: {} (side effect in S3)", enabled);
+                info!("SET_THREAD_VIDEO: {}", enabled);
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetDebugHUD(enabled) => {
                 self.frontend_settings.debug_hud = enabled;
-                self.hud_state.set_enabled(enabled);
                 info!("SET_DEBUG_HUD: {}", enabled);
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetMaxFF(speed) => {
                 self.frontend_settings.max_ff_speed = speed.min(8).max(1);
-                info!("SET_MAX_FF: {} (side effect in S3)", self.frontend_settings.max_ff_speed);
+                info!("SET_MAX_FF: {}", self.frontend_settings.max_ff_speed);
+                self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetCoreOption { key, value } => {
                 info!("TODO apply SET_CORE_OPTION: {} = {}", key, value);
@@ -538,9 +576,7 @@ impl ActiveSession {
             ControlEvent::ReloadConfig => {
                 info!("RELOAD_CONFIG");
                 self.frontend_settings = settings::load_frontend_settings(&self.ctx.paths);
-                self.scale_mode = self.frontend_settings.scale_mode;
-                self.hud_state.set_enabled(self.frontend_settings.debug_hud);
-                info!("Reloaded frontend settings: scale={:?}", self.frontend_settings.scale_mode);
+                self.apply_frontend_settings(drv)?;
             }
         }
         Ok(())
