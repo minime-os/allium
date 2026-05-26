@@ -73,7 +73,12 @@ BOOTSTRAP_PACKAGES := \
 	alsa-lib-dev \
 	sdl2-dev \
 	mesa-dev \
-	eudev-dev
+	eudev-dev \
+	rust \
+	cargo \
+	rust-clippy \
+	clang-dev \
+	clang-libs
 
 .DEFAULT_GOAL := help
 
