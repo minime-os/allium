@@ -128,7 +128,12 @@ impl ControlBindings {
         self.mapping
             .get(name)
             .and_then(|s| s.parse::<Key>().ok())
-            .or_else(|| DEFAULT_CONTROLS.iter().find(|(rid, _)| *rid == id).map(|(_, k)| *k))
+            .or_else(|| {
+                DEFAULT_CONTROLS
+                    .iter()
+                    .find(|(rid, _)| *rid == id)
+                    .map(|(_, k)| *k)
+            })
     }
 
     /// Set a binding: libretro button name -> physical key name.
@@ -212,7 +217,9 @@ impl ShortcutBindings {
     pub fn poll(&self, keys: &HashSet<Key>, menu_held: bool) -> Vec<String> {
         let mut actions = Vec::new();
         for (action, combo) in &self.mapping {
-            let Some((needs_menu, key)) = Self::parse_combo(combo) else { continue };
+            let Some((needs_menu, key)) = Self::parse_combo(combo) else {
+                continue;
+            };
             if keys.contains(&key) {
                 if needs_menu && !menu_held {
                     continue;
@@ -258,7 +265,10 @@ pub fn save_control_bindings(
 }
 
 pub fn load_shortcut_bindings(_paths: &PlayPaths) -> ShortcutBindings {
-    let path = common::constants::ALLIUM_BASE_DIR.join("config").join("play").join("shortcuts.toml");
+    let path = common::constants::ALLIUM_BASE_DIR
+        .join("config")
+        .join("play")
+        .join("shortcuts.toml");
     match std::fs::read_to_string(&path) {
         Ok(content) => match toml::from_str(&content) {
             Ok(b) => b,
@@ -275,11 +285,11 @@ pub fn load_shortcut_bindings(_paths: &PlayPaths) -> ShortcutBindings {
     }
 }
 
-pub fn save_shortcut_bindings(
-    _paths: &PlayPaths,
-    bindings: &ShortcutBindings,
-) -> Result<()> {
-    let path = common::constants::ALLIUM_BASE_DIR.join("config").join("play").join("shortcuts.toml");
+pub fn save_shortcut_bindings(_paths: &PlayPaths, bindings: &ShortcutBindings) -> Result<()> {
+    let path = common::constants::ALLIUM_BASE_DIR
+        .join("config")
+        .join("play")
+        .join("shortcuts.toml");
     std::fs::create_dir_all(path.parent().unwrap()).context("Failed to create config dir")?;
     let content = toml::to_string_pretty(bindings).context("Failed to serialise shortcuts")?;
     std::fs::write(&path, content).context("Failed to write shortcuts.toml")?;
@@ -294,16 +304,28 @@ mod tests {
     #[test]
     fn default_controls_resolve() {
         let controls = ControlBindings::default();
-        assert_eq!(controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_A), Some(Key::A));
-        assert_eq!(controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_B), Some(Key::B));
-        assert_eq!(controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_X), Some(Key::X));
+        assert_eq!(
+            controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_A),
+            Some(Key::A)
+        );
+        assert_eq!(
+            controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_B),
+            Some(Key::B)
+        );
+        assert_eq!(
+            controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_X),
+            Some(Key::X)
+        );
     }
 
     #[test]
     fn override_changes_mapping() {
         let mut controls = ControlBindings::default();
         controls.set("A", "L");
-        assert_eq!(controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_A), Some(Key::L));
+        assert_eq!(
+            controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_A),
+            Some(Key::L)
+        );
     }
 
     #[test]
@@ -311,7 +333,10 @@ mod tests {
         let mut controls = ControlBindings::default();
         controls.set("A", "L");
         controls.clear("A");
-        assert_eq!(controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_A), Some(Key::A));
+        assert_eq!(
+            controls.key_for_retro_id(RETRO_DEVICE_ID_JOYPAD_A),
+            Some(Key::A)
+        );
     }
 
     #[test]
@@ -321,7 +346,10 @@ mod tests {
 
     #[test]
     fn shortcut_parse_menu_combo() {
-        assert_eq!(ShortcutBindings::parse_combo("MENU+Y"), Some((true, Key::Y)));
+        assert_eq!(
+            ShortcutBindings::parse_combo("MENU+Y"),
+            Some((true, Key::Y))
+        );
     }
 
     #[test]

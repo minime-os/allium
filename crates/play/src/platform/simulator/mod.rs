@@ -38,7 +38,14 @@ impl SimulatorPlatform {
     ) -> Result<Self> {
         let (key_tx, key_rx) = std::sync::mpsc::channel();
         let (control_tx, control_rx) = std::sync::mpsc::channel();
-        let video = SimulatorVideo::new(source_width, source_height, aspect_ratio, scale, key_tx, control_tx)?;
+        let video = SimulatorVideo::new(
+            source_width,
+            source_height,
+            aspect_ratio,
+            scale,
+            key_tx,
+            control_tx,
+        )?;
         let _audio = SimulatorAudio::new(sample_rate, audio_consumer)?;
         let input = SimulatorInput { key_rx, control_rx };
         let stats = stats::SimulatorStats::new();

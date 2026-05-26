@@ -2,10 +2,10 @@
 // It searches the archive for a game file with a valid extension (e.g. .nes).
 // It then extracts the game file to a temporary folder and returns the paths so we can load and later clean it up.
 
+use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use anyhow::{Result, anyhow};
 
 pub struct ExtractedRom {
     pub file_path: PathBuf,
@@ -50,7 +50,6 @@ pub fn resolve_rom_path(
         extracted_dir: Some(extracted.dir_path),
     })
 }
-
 
 // Checks if a file path points to a ZIP file.
 pub fn is_zip_path(path: &Path) -> bool {

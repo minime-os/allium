@@ -4,8 +4,8 @@
 use crate::audio::AudioConsumer;
 use anyhow::{Context, Result};
 use log::{info, warn};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 const CHANNELS: usize = 2;
@@ -88,11 +88,17 @@ fn enable_miyoo_audio(attr: &mut ::ffi::MI_AUDIO_Attr_s) {
     use ::ffi::*;
     unsafe {
         let ret = MI_AO_SetPubAttr(AO_DEV, attr);
-        if ret != 0 { warn!("MI_AO_SetPubAttr returned {ret}"); }
+        if ret != 0 {
+            warn!("MI_AO_SetPubAttr returned {ret}");
+        }
         let ret = MI_AO_Enable(AO_DEV);
-        if ret != 0 { warn!("MI_AO_Enable returned {ret}"); }
+        if ret != 0 {
+            warn!("MI_AO_Enable returned {ret}");
+        }
         let ret = MI_AO_EnableChn(AO_DEV, AO_CHN);
-        if ret != 0 { warn!("MI_AO_EnableChn returned {ret}"); }
+        if ret != 0 {
+            warn!("MI_AO_EnableChn returned {ret}");
+        }
     }
 }
 
@@ -142,9 +148,12 @@ fn send_miyoo_frame(buffer: &mut [i16], seq: u32) {
         eBitwidth: MI_AUDIO_BitWidth_e_E_MI_AUDIO_BIT_WIDTH_16,
         eSoundmode: MI_AUDIO_SoundMode_e_E_MI_AUDIO_SOUND_MODE_STEREO,
         apVirAddr: [std::ptr::null_mut(); 16],
-        u64TimeStamp: 0, u32Seq: seq,
+        u64TimeStamp: 0,
+        u32Seq: seq,
         u32Len: (PERIOD_FRAMES * CHANNELS * std::mem::size_of::<i16>()) as MI_U32,
-        au32PoolId: [0; 2], apSrcPcmVirAddr: [std::ptr::null_mut(); 16], u32SrcPcmLen: 0,
+        au32PoolId: [0; 2],
+        apSrcPcmVirAddr: [std::ptr::null_mut(); 16],
+        u32SrcPcmLen: 0,
     };
     frame.apVirAddr[0] = buffer.as_mut_ptr() as *mut std::os::raw::c_void;
     unsafe {
@@ -160,7 +169,9 @@ fn run_miyoo_thread(
     running: Arc<AtomicBool>,
 ) -> Result<()> {
     let mi_rate = init_miyoo_audio(sample_rate);
-    info!("Starting Miyoo MI_AO audio: dev={AO_DEV}, chn={AO_CHN}, sample_rate={mi_rate} Hz, period_frames={PERIOD_FRAMES}");
+    info!(
+        "Starting Miyoo MI_AO audio: dev={AO_DEV}, chn={AO_CHN}, sample_rate={mi_rate} Hz, period_frames={PERIOD_FRAMES}"
+    );
     let (mut buffer, mut seq, mut buffering) = (vec![0i16; PERIOD_FRAMES * CHANNELS], 0u32, true);
     while running.load(Ordering::Relaxed) {
         process_miyoo_audio_period(&mut consumer, &mut buffer, &mut buffering);

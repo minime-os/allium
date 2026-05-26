@@ -37,10 +37,20 @@ impl AudioQueue {
         let capacity_samples = capacity_frames * CHANNELS;
         let rb = HeapRb::<i16>::new(capacity_samples);
         let (producer, consumer) = rb.split();
-        info!("Audio queue initialized: capacity_frames={capacity_frames}, sample_rate={sample_rate}");
+        info!(
+            "Audio queue initialized: capacity_frames={capacity_frames}, sample_rate={sample_rate}"
+        );
         (
-            AudioProducer { producer, muted: false, dropped_frames: 0 },
-            AudioConsumer { consumer, last_underrun_log: None, underrun_frames: 0 },
+            AudioProducer {
+                producer,
+                muted: false,
+                dropped_frames: 0,
+            },
+            AudioConsumer {
+                consumer,
+                last_underrun_log: None,
+                underrun_frames: 0,
+            },
         )
     }
 

@@ -1,11 +1,14 @@
 // Miyoo-specific framebuffer presentation logic.
 // This module writes raw pixels directly to the physical /dev/fb0 framebuffer.
 
-use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect, rgb565_to_bgra8888, apply_rgb565_effect};
 use crate::settings::{ScreenEffect, ScreenSharpness};
 use crate::video::{
-    CapturedFrame, VideoFrameFormat, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL,
+    CapturedFrame, RGB565_BYTES_PER_PIXEL, VideoFrameFormat, XRGB8888_BYTES_PER_PIXEL,
     validate_frame,
+};
+use crate::video::{
+    ScaleMode, ScaleRect, apply_rgb565_effect, calculate_scale_rect, rgb565_to_bgra8888,
+    validate_scaled_rect,
 };
 
 pub(crate) const BGRA8888_BYTES_PER_PIXEL: usize = 4;
@@ -47,41 +50,68 @@ impl MiyooVideo {
         let pitch = fb.fix_screen_info.line_length as usize;
         let width = fb.var_screen_info.xres;
         let height = fb.var_screen_info.yres;
-        let rect = calculate_scale_rect(scale, source_width, source_height, aspect_ratio, width, height)?;
+        let rect = calculate_scale_rect(
+            scale,
+            source_width,
+            source_height,
+            aspect_ratio,
+            width,
+            height,
+        )?;
         info!(
             "Miyoo framebuffer initialized at {}x{} pitch={} bpp={}",
             width, height, pitch, fb.var_screen_info.bits_per_pixel
         );
         fb.frame.fill(0);
-        Ok(Self { fb, pitch, height, format, rect, effect: ScreenEffect::None, sharpness: ScreenSharpness::Soft, scale_factor: None })
+        Ok(Self {
+            fb,
+            pitch,
+            height,
+            format,
+            rect,
+            effect: ScreenEffect::None,
+            sharpness: ScreenSharpness::Soft,
+            scale_factor: None,
+        })
     }
 
     fn width(&self) -> u32 {
         self.fb.var_screen_info.xres
     }
 
-    fn scale_to_fb(&mut self,
-        frame: &CapturedFrame,
-        fmt: VideoFrameFormat,
-    ) -> Result<()> {
+    fn scale_to_fb(&mut self, frame: &CapturedFrame, fmt: VideoFrameFormat) -> Result<()> {
         match (self.format, fmt) {
-            (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Rgb565) => {
-                scale_rgb565_to_rgb565(
-                    frame, &mut self.fb.frame, self.pitch, self.height, self.rect,
-                    self.effect, self.scale_factor,
-                )
-            }
-            (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Xrgb8888) => {
-                Err(anyhow!("Miyoo 16-bit framebuffer does not support XRGB8888 frames"))
-            }
+            (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Rgb565) => scale_rgb565_to_rgb565(
+                frame,
+                &mut self.fb.frame,
+                self.pitch,
+                self.height,
+                self.rect,
+                self.effect,
+                self.scale_factor,
+            ),
+            (MiyooFramebufferFormat::Rgb565, VideoFrameFormat::Xrgb8888) => Err(anyhow!(
+                "Miyoo 16-bit framebuffer does not support XRGB8888 frames"
+            )),
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Rgb565) => {
                 scale_rgb565_to_bgra8888(
-                    frame, &mut self.fb.frame, self.pitch, self.height, self.rect,
-                    self.effect, self.scale_factor,
+                    frame,
+                    &mut self.fb.frame,
+                    self.pitch,
+                    self.height,
+                    self.rect,
+                    self.effect,
+                    self.scale_factor,
                 )
             }
             (MiyooFramebufferFormat::Bgra8888, VideoFrameFormat::Xrgb8888) => {
-                scale_xrgb8888_to_bgra8888(frame, &mut self.fb.frame, self.pitch, self.height, self.rect)
+                scale_xrgb8888_to_bgra8888(
+                    frame,
+                    &mut self.fb.frame,
+                    self.pitch,
+                    self.height,
+                    self.rect,
+                )
             }
         }
     }
@@ -175,7 +205,9 @@ fn scale_rgb565_row(
             pixel
         };
         let out_x = (rect.x + rect.width - 1 - dst_x) as usize;
-        unsafe { *out_row.add(out_x) = pixel; }
+        unsafe {
+            *out_row.add(out_x) = pixel;
+        }
     }
 }
 
@@ -189,7 +221,13 @@ pub fn scale_rgb565_to_rgb565(
     scale_factor: Option<u32>,
 ) -> Result<()> {
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
-    validate_scaled_byte_output(output, output_pitch, output_height, rect, RGB565_BYTES_PER_PIXEL)?;
+    validate_scaled_byte_output(
+        output,
+        output_pitch,
+        output_height,
+        rect,
+        RGB565_BYTES_PER_PIXEL,
+    )?;
     let step_x = ((frame.width as u32) << 16) / rect.width;
     let step_y = ((frame.height as u32) << 16) / rect.height;
     let out_ptr = output.as_mut_ptr() as *mut u16;
@@ -198,7 +236,18 @@ pub fn scale_rgb565_to_rgb565(
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_rgb565_row(frame, out_ptr, out_pitch_px, output_height, rect, dst_y, src_y, step_x, effect, scale_factor);
+        scale_rgb565_row(
+            frame,
+            out_ptr,
+            out_pitch_px,
+            output_height,
+            rect,
+            dst_y,
+            src_y,
+            step_x,
+            effect,
+            scale_factor,
+        );
     }
     Ok(())
 }
@@ -229,7 +278,9 @@ fn scale_rgb565_to_bgra8888_row(
         };
         let bgra = rgb565_to_bgra8888(pixel);
         let out_x = (rect.x + rect.width - 1 - dst_x) as usize;
-        unsafe { *out_row.add(out_x) = bgra; }
+        unsafe {
+            *out_row.add(out_x) = bgra;
+        }
     }
 }
 
@@ -243,7 +294,13 @@ pub fn scale_rgb565_to_bgra8888(
     scale_factor: Option<u32>,
 ) -> Result<()> {
     validate_frame(frame, RGB565_BYTES_PER_PIXEL)?;
-    validate_scaled_byte_output(output, output_pitch, output_height, rect, BGRA8888_BYTES_PER_PIXEL)?;
+    validate_scaled_byte_output(
+        output,
+        output_pitch,
+        output_height,
+        rect,
+        BGRA8888_BYTES_PER_PIXEL,
+    )?;
     let step_x = ((frame.width as u32) << 16) / rect.width;
     let step_y = ((frame.height as u32) << 16) / rect.height;
     let out_ptr = output.as_mut_ptr() as *mut u32;
@@ -252,7 +309,18 @@ pub fn scale_rgb565_to_bgra8888(
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_rgb565_to_bgra8888_row(frame, out_ptr, out_pitch_px, output_height, rect, dst_y, src_y, step_x, effect, scale_factor);
+        scale_rgb565_to_bgra8888_row(
+            frame,
+            out_ptr,
+            out_pitch_px,
+            output_height,
+            rect,
+            dst_y,
+            src_y,
+            step_x,
+            effect,
+            scale_factor,
+        );
     }
     Ok(())
 }
@@ -282,7 +350,9 @@ fn scale_xrgb8888_to_bgra8888_row(
         // We set the alpha channel to 0xff explicitly to prevent transparency.
         let bgra = pixel | 0xff000000;
         let out_x = (rect.x + rect.width - 1 - dst_x) as usize;
-        unsafe { *out_row.add(out_x) = bgra; }
+        unsafe {
+            *out_row.add(out_x) = bgra;
+        }
     }
 }
 
@@ -297,7 +367,13 @@ pub fn scale_xrgb8888_to_bgra8888(
 ) -> Result<()> {
     // Check bounds beforehand to guarantee safe raw memory access during scale loop.
     validate_frame(frame, XRGB8888_BYTES_PER_PIXEL)?;
-    validate_scaled_byte_output(output, output_pitch, output_height, rect, BGRA8888_BYTES_PER_PIXEL)?;
+    validate_scaled_byte_output(
+        output,
+        output_pitch,
+        output_height,
+        rect,
+        BGRA8888_BYTES_PER_PIXEL,
+    )?;
     let step_x = ((frame.width as u32) << 16) / rect.width;
     let step_y = ((frame.height as u32) << 16) / rect.height;
     let out_ptr = output.as_mut_ptr() as *mut u32;
@@ -306,7 +382,16 @@ pub fn scale_xrgb8888_to_bgra8888(
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_xrgb8888_to_bgra8888_row(frame, out_ptr, out_pitch_px, output_height, rect, dst_y, src_y, step_x);
+        scale_xrgb8888_to_bgra8888_row(
+            frame,
+            out_ptr,
+            out_pitch_px,
+            output_height,
+            rect,
+            dst_y,
+            src_y,
+            step_x,
+        );
     }
     Ok(())
 }
@@ -361,8 +446,8 @@ mod tests {
         assert_eq!(
             output,
             vec![
-                0xaa, 0xaa, 0xaa, 0xaa, 0x00, 0xff, 0x00, 0xff, 0xaa, 0xaa, 0xaa, 0xaa,
-                0xaa, 0xaa, 0xaa, 0xaa, 0x00, 0xff, 0x00, 0xff, 0xaa, 0xaa, 0xaa, 0xaa,
+                0xaa, 0xaa, 0xaa, 0xaa, 0x00, 0xff, 0x00, 0xff, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
+                0xaa, 0xaa, 0x00, 0xff, 0x00, 0xff, 0xaa, 0xaa, 0xaa, 0xaa,
             ]
         );
     }

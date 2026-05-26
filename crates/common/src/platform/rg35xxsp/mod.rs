@@ -6,13 +6,13 @@
  * to maintain high portability and absolute separation from core Allium.
  */
 
-use std::fs::{self, File};
-use std::io::Read;
-use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use evdev::{Device, EventStream, EventType, KeyCode};
 use framebuffer::Framebuffer;
+use std::fs::{self, File};
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use tiny_skia::{Pixmap, PixmapMut, PixmapRef};
 
 use crate::battery::Battery;
@@ -20,7 +20,7 @@ use crate::display::Display;
 use crate::display::color::Color;
 use crate::display::settings::DisplaySettings;
 use crate::geom::Rect;
-use crate::platform::{KeyEvent, Platform, Key};
+use crate::platform::{Key, KeyEvent, Platform};
 
 pub const SCREEN_WIDTH: u32 = 640;
 pub const SCREEN_HEIGHT: u32 = 480;
@@ -71,19 +71,28 @@ impl Platform for Rg35xxspPlatform {
         // Scan all available event devices on standard Linux
         if let Ok(entries) = fs::read_dir("/dev/input") {
             for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with("event") {
-                        if let Ok(dev) = Device::open(entry.path()) {
-                            if let Ok(stream) = dev.into_event_stream() {
-                                inputs.push(stream);
-                            }
-                        }
-                    }
+                let file_name = entry.file_name();
+                let Some(name) = file_name.to_str() else {
+                    continue;
+                };
+                if !name.starts_with("event") {
+                    continue;
                 }
+                let Ok(dev) = Device::open(entry.path()) else {
+                    continue;
+                };
+                let Ok(stream) = dev.into_event_stream() else {
+                    continue;
+                };
+                inputs.push(stream);
             }
         }
 
-        Ok(Self { display, battery, inputs })
+        Ok(Self {
+            display,
+            battery,
+            inputs,
+        })
     }
 
     fn display(&mut self) -> Result<Self::Display> {
@@ -103,16 +112,18 @@ impl Platform for Rg35xxspPlatform {
         loop {
             for stream in &mut self.inputs {
                 use futures::FutureExt;
-                if let Some(Ok(event)) = stream.next_event().now_or_never() {
-                    if event.event_type() == EventType::KEY {
-                        let key: Key = event.code().into();
-                        return match event.value() {
-                            0 => KeyEvent::Released(key),
-                            1 => KeyEvent::Pressed(key),
-                            _ => KeyEvent::Autorepeat(key),
-                        };
-                    }
+                let Some(Ok(event)) = stream.next_event().now_or_never() else {
+                    continue;
+                };
+                if event.event_type() != EventType::KEY {
+                    continue;
                 }
+                let key: Key = event.code().into();
+                return match event.value() {
+                    0 => KeyEvent::Released(key),
+                    1 => KeyEvent::Pressed(key),
+                    _ => KeyEvent::Autorepeat(key),
+                };
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
@@ -252,7 +263,7 @@ impl Display for Rg35xxspDisplay {
                     fb_frame[offset + 1] = ((rgb565 >> 8) & 0xFF) as u8;
                 }
             }
-            let _ = fb.write_frame(&fb_frame);
+            fb.write_frame(&fb_frame);
         }
         Ok(())
     }
@@ -294,7 +305,10 @@ impl Rg35xxspBattery {
             }
         }
 
-        Ok(Self { capacity_path, status_path })
+        Ok(Self {
+            capacity_path,
+            status_path,
+        })
     }
 }
 
@@ -304,21 +318,23 @@ impl Battery for Rg35xxspBattery {
     }
 
     fn percentage(&self) -> i32 {
-        if let Some(ref path) = self.capacity_path {
-            if let Ok(content) = fs::read_to_string(path) {
-                return content.trim().parse().unwrap_or(50);
-            }
-        }
-        50
+        let Some(ref path) = self.capacity_path else {
+            return 50;
+        };
+        let Ok(content) = fs::read_to_string(path) else {
+            return 50;
+        };
+        content.trim().parse().unwrap_or(50)
     }
 
     fn charging(&self) -> bool {
-        if let Some(ref path) = self.status_path {
-            if let Ok(content) = fs::read_to_string(path) {
-                return content.trim().eq_ignore_ascii_case("charging")
-                    || content.trim().eq_ignore_ascii_case("full");
-            }
-        }
-        false
+        let Some(ref path) = self.status_path else {
+            return false;
+        };
+        let Ok(content) = fs::read_to_string(path) else {
+            return false;
+        };
+        content.trim().eq_ignore_ascii_case("charging")
+            || content.trim().eq_ignore_ascii_case("full")
     }
 }

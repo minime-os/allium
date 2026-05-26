@@ -14,7 +14,10 @@ async fn main() -> Result<()> {
     {
         use common::constants::ALLIUM_LOG_DIR;
         let _ = common::log::init_hardware_log(&ALLIUM_LOG_DIR.join("alliumd.log"));
-        println!("--- alliumd starting at {} ---", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+        println!(
+            "--- alliumd starting at {} ---",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
     }
 
     SimpleLogger::new().env().init().unwrap();

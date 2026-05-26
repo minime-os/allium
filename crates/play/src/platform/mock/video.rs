@@ -1,10 +1,10 @@
 // Headless mock video backend.
 // It stores the last captured frame to support headless automated testing and PPM screenshots on demand.
 
+use crate::dump::dump_frame;
 use crate::video::ScaleMode;
 use crate::video::{CapturedFrame, VideoFrameFormat};
-use crate::dump::dump_frame;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::path::Path;
 
 pub struct MockVideo {
@@ -20,11 +20,7 @@ impl MockVideo {
         }
     }
 
-    pub fn present(
-        &mut self,
-        frame: &CapturedFrame,
-        format: VideoFrameFormat,
-    ) -> Result<bool> {
+    pub fn present(&mut self, frame: &CapturedFrame, format: VideoFrameFormat) -> Result<bool> {
         self.last_frame = Some(frame.clone());
         self.last_format = Some(format);
         Ok(false)
@@ -41,8 +37,13 @@ impl MockVideo {
     }
 
     pub fn dump_last_frame(&self, path: &Path) -> Result<()> {
-        let frame = self.last_frame.as_ref().ok_or_else(|| anyhow!("No frame captured yet"))?;
-        let format = self.last_format.ok_or_else(|| anyhow!("No frame format recorded"))?;
+        let frame = self
+            .last_frame
+            .as_ref()
+            .ok_or_else(|| anyhow!("No frame captured yet"))?;
+        let format = self
+            .last_format
+            .ok_or_else(|| anyhow!("No frame format recorded"))?;
         dump_frame(path, frame, Some(format))
     }
 }

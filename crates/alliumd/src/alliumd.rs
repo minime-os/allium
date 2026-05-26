@@ -147,11 +147,18 @@ async fn spawn_main() -> Result<Child> {
     #[cfg(feature = "miyoo")]
     return Ok(match GameInfo::load()? {
         Some(mut game_info) => {
-            info!("found game info, resuming game: {} ({:?})", game_info.name, game_info.path);
+            info!(
+                "found game info, resuming game: {} ({:?})",
+                game_info.name, game_info.path
+            );
             game_info.start_time = Utc::now();
             game_info.save()?;
             let cmd = game_info.command();
-            info!("spawning game command: {:?} {:?}", cmd.get_program(), cmd.get_args());
+            info!(
+                "spawning game command: {:?} {:?}",
+                cmd.get_program(),
+                cmd.get_args()
+            );
             cmd.into()
         }
         None => {

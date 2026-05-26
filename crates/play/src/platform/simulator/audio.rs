@@ -2,7 +2,7 @@
 // This backend initializes CPAL output stream, supporting floating-point or integer formats.
 
 use crate::audio::AudioConsumer;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use log::{info, warn};
 
 const CHANNELS: usize = 2;
@@ -27,7 +27,8 @@ impl SimulatorAudio {
 fn select_config(device: &cpal::Device, sample_rate: u32) -> Result<cpal::SupportedStreamConfig> {
     use cpal::traits::DeviceTrait;
     let req = cpal::SampleRate(sample_rate);
-    device.supported_output_configs()
+    device
+        .supported_output_configs()
         .context("Failed to query cpal output configs")?
         .filter(|config| config.channels() == CHANNELS as u16)
         .find_map(|config| config.try_with_sample_rate(req))
@@ -70,7 +71,14 @@ fn build_f32(
 ) -> Result<cpal::Stream> {
     use cpal::traits::DeviceTrait;
     device
-        .build_output_stream(config, move |data, _| { consumer.fill_f32(data); }, err_fn, None)
+        .build_output_stream(
+            config,
+            move |data, _| {
+                consumer.fill_f32(data);
+            },
+            err_fn,
+            None,
+        )
         .context("Failed to build f32 cpal output stream")
 }
 
@@ -82,7 +90,14 @@ fn build_i16(
 ) -> Result<cpal::Stream> {
     use cpal::traits::DeviceTrait;
     device
-        .build_output_stream(config, move |data, _| { consumer.fill_i16(data); }, err_fn, None)
+        .build_output_stream(
+            config,
+            move |data, _| {
+                consumer.fill_i16(data);
+            },
+            err_fn,
+            None,
+        )
         .context("Failed to build i16 cpal output stream")
 }
 
@@ -94,6 +109,13 @@ fn build_u16(
 ) -> Result<cpal::Stream> {
     use cpal::traits::DeviceTrait;
     device
-        .build_output_stream(config, move |data, _| { consumer.fill_u16(data); }, err_fn, None)
+        .build_output_stream(
+            config,
+            move |data, _| {
+                consumer.fill_u16(data);
+            },
+            err_fn,
+            None,
+        )
         .context("Failed to build u16 cpal output stream")
 }

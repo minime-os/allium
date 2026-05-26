@@ -213,14 +213,30 @@ impl FrontendSettingsPartial {
     }
 
     fn merge_into(&self, target: &mut FrontendSettings) {
-        if let Some(v) = self.scale_mode { target.scale_mode = v; }
-        if let Some(v) = self.effect { target.effect = v; }
-        if let Some(v) = self.sharpness { target.sharpness = v; }
-        if let Some(v) = self.tearing { target.tearing = v; }
-        if let Some(v) = self.cpu_speed { target.cpu_speed = v; }
-        if let Some(v) = self.thread_video { target.thread_video = v; }
-        if let Some(v) = self.debug_hud { target.debug_hud = v; }
-        if let Some(v) = self.max_ff_speed { target.max_ff_speed = v; }
+        if let Some(v) = self.scale_mode {
+            target.scale_mode = v;
+        }
+        if let Some(v) = self.effect {
+            target.effect = v;
+        }
+        if let Some(v) = self.sharpness {
+            target.sharpness = v;
+        }
+        if let Some(v) = self.tearing {
+            target.tearing = v;
+        }
+        if let Some(v) = self.cpu_speed {
+            target.cpu_speed = v;
+        }
+        if let Some(v) = self.thread_video {
+            target.thread_video = v;
+        }
+        if let Some(v) = self.debug_hud {
+            target.debug_hud = v;
+        }
+        if let Some(v) = self.max_ff_speed {
+            target.max_ff_speed = v;
+        }
     }
 }
 
@@ -229,7 +245,10 @@ impl FrontendSettingsPartial {
 pub fn load_frontend_settings(paths: &PlayPaths) -> FrontendSettings {
     let mut settings = FrontendSettings::default();
 
-    let global = common::constants::ALLIUM_BASE_DIR.join("config").join("play").join("frontend.toml");
+    let global = common::constants::ALLIUM_BASE_DIR
+        .join("config")
+        .join("play")
+        .join("frontend.toml");
     if let Err(e) = load_and_merge(&global, &mut settings) {
         info!("No global play frontend config: {}", e);
     }
@@ -248,14 +267,12 @@ pub fn load_frontend_settings(paths: &PlayPaths) -> FrontendSettings {
 }
 
 fn load_and_merge(path: &std::path::Path, settings: &mut FrontendSettings) -> Result<()> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read {:?}", path))?;
+    let content = fs::read_to_string(path).with_context(|| format!("Failed to read {:?}", path))?;
     let partial = FrontendSettingsPartial::from_str(&content)
         .with_context(|| format!("Failed to parse {:?}", path))?;
     partial.merge_into(settings);
     Ok(())
 }
-
 
 /// Serialises settings and writes atomically (temp file + rename).
 pub fn save_frontend_settings(
@@ -271,11 +288,10 @@ pub fn save_frontend_settings(
     fs::create_dir_all(path.parent().unwrap_or_else(|| std::path::Path::new("")))
         .context("Failed to create config dir")?;
 
-    let content = toml::to_string_pretty(settings)
-        .context("Failed to serialise frontend settings")?;
+    let content =
+        toml::to_string_pretty(settings).context("Failed to serialise frontend settings")?;
 
-    fs::write(&path, content.as_bytes())
-        .with_context(|| format!("Failed to write {:?}", path))?;
+    fs::write(&path, content.as_bytes()).with_context(|| format!("Failed to write {:?}", path))?;
 
     info!("Saved frontend settings to {:?}", path);
     Ok(())
@@ -301,22 +317,20 @@ pub fn restore_frontend_defaults(paths: &PlayPaths) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Args;
     use crate::paths::PlayPaths;
     use clap::Parser;
-    use crate::config::Args;
 
     fn test_paths() -> PlayPaths {
-        PlayPaths::from_args(
-            &Args::parse_from([
-                "play",
-                "--rom",
-                "/roms/nes/Super Mario Bros.nes",
-                "--core",
-                "fceumm_libretro.so",
-                "--core-id",
-                "nes",
-            ]),
-        )
+        PlayPaths::from_args(&Args::parse_from([
+            "play",
+            "--rom",
+            "/roms/nes/Super Mario Bros.nes",
+            "--core",
+            "fceumm_libretro.so",
+            "--core-id",
+            "nes",
+        ]))
     }
 
     #[test]
@@ -357,11 +371,14 @@ mod tests {
 
         let base = std::env::temp_dir().join(format!(
             "allium_play_test_hier_{}",
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         let global = base.join("frontend.toml");
         let system = base.join("nes").join("frontend.toml");
-        let game  = base.join("nes").join("Super Mario Bros.toml");
+        let game = base.join("nes").join("Super Mario Bros.toml");
 
         fs::create_dir_all(system.parent().unwrap()).unwrap();
 
@@ -404,7 +421,10 @@ mod tests {
 
         let base = std::env::temp_dir().join(format!(
             "allium_play_test_rt_{}",
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         let paths = PlayPaths {
             rom: std::path::PathBuf::from("/roms/nes/game.nes"),

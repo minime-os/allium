@@ -190,7 +190,8 @@ mod tests {
 
     #[test]
     fn missing_rom_fails() {
-        let result = Args::try_parse_from(["play", "--core", "nes_libretro.so", "--core-id", "nes"]);
+        let result =
+            Args::try_parse_from(["play", "--core", "nes_libretro.so", "--core-id", "nes"]);
         assert!(result.is_err());
     }
 

@@ -38,7 +38,9 @@ impl MiyooPlatform {
         }
 
         log::info!("Stopping audioserver");
-        run_script(&common::constants::ALLIUM_SD_ROOT.join(".tmp_update/script/stop_audioserver.sh"));
+        run_script(
+            &common::constants::ALLIUM_SD_ROOT.join(".tmp_update/script/stop_audioserver.sh"),
+        );
         block_libpadsp_preload();
         set_governor("performance");
 
@@ -84,7 +86,9 @@ impl MiyooPlatform {
 impl Drop for MiyooPlatform {
     fn drop(&mut self) {
         log::info!("Starting audioserver");
-        run_script(&common::constants::ALLIUM_SD_ROOT.join(".tmp_update/script/start_audioserver.sh"));
+        run_script(
+            &common::constants::ALLIUM_SD_ROOT.join(".tmp_update/script/start_audioserver.sh"),
+        );
         if self.swap_enabled {
             log::info!("Disabling swap");
             run_script(&common::constants::ALLIUM_SCRIPTS_DIR.join("swap-off.sh"));
@@ -94,14 +98,17 @@ impl Drop for MiyooPlatform {
 }
 
 pub fn init_logging() -> Result<()> {
-    use std::fs;
+    use common::constants::ALLIUM_PLAY_LOG;
     use log::LevelFilter;
     use simple_logger::SimpleLogger;
-    use common::constants::ALLIUM_PLAY_LOG;
+    use std::fs;
 
     let _ = fs::write("/mnt/SDCARD/.allium/logs/play_started.marker", "started");
     let _ = common::log::init_hardware_log(&*ALLIUM_PLAY_LOG);
-    println!("--- Play starting at {} ---", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "--- Play starting at {} ---",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
 
     SimpleLogger::new().with_level(LevelFilter::Info).init()?;
     Ok(())
@@ -164,11 +171,7 @@ fn get_pid_if_name_matches(path: &std::path::Path, name: &str) -> Option<u32> {
     let file_name = path.file_name()?.to_str()?;
     let pid = file_name.parse::<u32>().ok()?;
     let comm = std::fs::read_to_string(path.join("comm")).ok()?;
-    if comm.trim() == name {
-        Some(pid)
-    } else {
-        None
-    }
+    if comm.trim() == name { Some(pid) } else { None }
 }
 
 fn check_preload_padsp(pid: u32) -> bool {
@@ -180,19 +183,30 @@ fn check_preload_padsp(pid: u32) -> bool {
 }
 
 fn restart_network_cleanly() {
-    let _ = std::process::Command::new("killall").args(["-9", "wpa_supplicant", "udhcpc"]).status();
+    let _ = std::process::Command::new("killall")
+        .args(["-9", "wpa_supplicant", "udhcpc"])
+        .status();
 
     let wpa_path = common::constants::ALLIUM_SD_ROOT.join("miyoo/app/wpa_supplicant");
     let mut wpa_cmd = std::process::Command::new(wpa_path);
-    wpa_cmd.args(["-B", "-D", "nl80211", "-iwlan0", "-c", "/appconfigs/wpa_supplicant.conf"])
-           .env_remove("LD_PRELOAD");
+    wpa_cmd
+        .args([
+            "-B",
+            "-D",
+            "nl80211",
+            "-iwlan0",
+            "-c",
+            "/appconfigs/wpa_supplicant.conf",
+        ])
+        .env_remove("LD_PRELOAD");
     if let Err(e) = wpa_cmd.status() {
         log::warn!("Failed to restart wpa_supplicant: {}", e);
     }
 
     let mut udhcpc_cmd = std::process::Command::new("udhcpc");
-    udhcpc_cmd.args(["-i", "wlan0", "-s", "/etc/init.d/udhcpc.script"])
-              .env_remove("LD_PRELOAD");
+    udhcpc_cmd
+        .args(["-i", "wlan0", "-s", "/etc/init.d/udhcpc.script"])
+        .env_remove("LD_PRELOAD");
     if let Err(e) = udhcpc_cmd.status() {
         log::warn!("Failed to restart udhcpc: {}", e);
     }

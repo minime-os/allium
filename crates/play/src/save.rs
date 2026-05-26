@@ -2,13 +2,13 @@
 // It handles emulated SRAM (battery-backed memory) and save state slots.
 // All operations ensure safe serialization/deserialization against the local filesystem.
 
-use std::fs;
-use std::ptr;
 use crate::core::Core;
 use crate::paths::PlayPaths;
-use libretro::RETRO_MEMORY_SAVE_RAM;
 use anyhow::{Result, anyhow};
+use libretro::RETRO_MEMORY_SAVE_RAM;
 use log::{info, warn};
+use std::fs;
+use std::ptr;
 
 pub fn load_sram(core: &Core, paths: &PlayPaths) -> Result<()> {
     let Some((data, size)) = core.memory_region(RETRO_MEMORY_SAVE_RAM) else {
@@ -21,7 +21,10 @@ pub fn load_sram(core: &Core, paths: &PlayPaths) -> Result<()> {
 
     let sram = fs::read(&path)?;
     if sram.len() != size {
-        warn!("SRAM size mismatch for {path:?}: file={}, core={size}", sram.len());
+        warn!(
+            "SRAM size mismatch for {path:?}: file={}, core={size}",
+            sram.len()
+        );
     }
     unsafe {
         ptr::copy_nonoverlapping(sram.as_ptr(), data, sram.len().min(size));

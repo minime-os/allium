@@ -1,5 +1,5 @@
-use libretro::*;
 use common::platform::{Key, KeyEvent};
+use libretro::*;
 use std::collections::HashSet;
 use std::os::raw::c_uint;
 

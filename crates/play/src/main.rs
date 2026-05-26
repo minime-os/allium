@@ -19,14 +19,14 @@ mod unzip;
 mod video;
 
 use anyhow::{Result, anyhow};
+use commands::ControlEvent;
 use config::Args;
 use core::{ActiveSession, PlayContext};
 use log::{info, warn};
+use platform::{DefaultPlatform, init_logging};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use platform::{DefaultPlatform, init_logging};
 use video::frame_interval;
-use commands::ControlEvent;
 
 /// RAII guard that writes a state marker file on creation and removes it on drop.
 struct PlayStateGuard {
@@ -40,7 +40,9 @@ impl PlayStateGuard {
         if let Err(e) = std::fs::write(path, content) {
             log::warn!("Failed to write play state file: {}", e);
         }
-        Self { path: path.to_path_buf() }
+        Self {
+            path: path.to_path_buf(),
+        }
     }
 }
 
@@ -60,7 +62,11 @@ fn main() -> Result<()> {
     // Use hardcoded absolute path to avoid env var / LazyLock resolution issues
     // when ALLIUM_BASE_DIR is set to an empty string.
     let state_path = std::path::PathBuf::from("/mnt/SDCARD/.allium/state/play.json");
-    std::fs::create_dir_all(state_path.parent().unwrap_or_else(|| std::path::Path::new("")))?;
+    std::fs::create_dir_all(
+        state_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("")),
+    )?;
     let _guard = PlayStateGuard::new(&state_path);
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -161,9 +167,15 @@ async fn start_main_loop(
     let mut next_at = started_at;
     let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
     let reason = run_emulation_loop(
-        session, &mut rx, &mut drv, &mut frames, &mut next_at,
-        frame_interval, &mut ctrl_c,
-    ).await?;
+        session,
+        &mut rx,
+        &mut drv,
+        &mut frames,
+        &mut next_at,
+        frame_interval,
+        &mut ctrl_c,
+    )
+    .await?;
     shutdown_loop(session, reason, frames, started_at, fps);
     command_server.abort();
     Ok(())
@@ -279,15 +291,14 @@ fn process_pending_control_events(
     Ok(())
 }
 
-fn poll_and_apply_platform_inputs(
-    session: &mut ActiveSession,
-    drv: &mut DefaultPlatform,
-) {
+fn poll_and_apply_platform_inputs(session: &mut ActiveSession, drv: &mut DefaultPlatform) {
     let platform_events = drv.poll_input(&mut session.joypad_state);
 
     // Check for shortcut combos before forwarding to core.
     let menu_held = session.joypad_state.is_pressed(common::platform::Key::Menu);
-    let actions = session.shortcut_bindings.poll(session.joypad_state.raw_keys(), menu_held);
+    let actions = session
+        .shortcut_bindings
+        .poll(session.joypad_state.raw_keys(), menu_held);
     for action in actions {
         let event = match action.as_str() {
             "toggle_fast_forward" => Some(ControlEvent::ToggleFastForward),

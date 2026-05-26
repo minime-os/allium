@@ -2,10 +2,10 @@
 // This avoids compile-time dependencies on alsa-sys and makes cross-compiling on Mac fully functional.
 
 use crate::audio::AudioConsumer;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use log::{info, warn};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 const CHANNELS: usize = 2;
@@ -45,15 +45,13 @@ type SndPcmRecover = unsafe extern "C" fn(
     silent: std::os::raw::c_int,
 ) -> std::os::raw::c_int;
 
-type SndPcmClose = unsafe extern "C" fn(
-    pcm: *mut std::os::raw::c_void,
-) -> std::os::raw::c_int;
+type SndPcmClose = unsafe extern "C" fn(pcm: *mut std::os::raw::c_void) -> std::os::raw::c_int;
 
 impl Rg35xxspAudio {
     pub fn new(sample_rate: u32, consumer: AudioConsumer) -> Result<Self> {
         let running = Arc::new(AtomicBool::new(true));
         let thread_running = running.clone();
-        
+
         let thread = thread::Builder::new()
             .name("play-rg35xxsp-audio".to_string())
             .spawn(move || {
@@ -93,14 +91,16 @@ fn run_alsa_thread(
 
     // Get symbols
     let snd_pcm_open: libloading::Symbol<SndPcmOpen> = unsafe { lib.get(b"snd_pcm_open")? };
-    let snd_pcm_set_params: libloading::Symbol<SndPcmSetParams> = unsafe { lib.get(b"snd_pcm_set_params")? };
+    let snd_pcm_set_params: libloading::Symbol<SndPcmSetParams> =
+        unsafe { lib.get(b"snd_pcm_set_params")? };
     let snd_pcm_writei: libloading::Symbol<SndPcmWritei> = unsafe { lib.get(b"snd_pcm_writei")? };
-    let snd_pcm_recover: libloading::Symbol<SndPcmRecover> = unsafe { lib.get(b"snd_pcm_recover")? };
+    let snd_pcm_recover: libloading::Symbol<SndPcmRecover> =
+        unsafe { lib.get(b"snd_pcm_recover")? };
     let snd_pcm_close: libloading::Symbol<SndPcmClose> = unsafe { lib.get(b"snd_pcm_close")? };
 
     let mut pcm: *mut std::os::raw::c_void = std::ptr::null_mut();
     let name = std::ffi::CString::new("default")?;
-    
+
     // Open in blocking mode (0)
     let ret = unsafe { snd_pcm_open(&mut pcm, name.as_ptr(), 0, 0) };
     if ret < 0 {
@@ -116,11 +116,16 @@ fn run_alsa_thread(
     // latency = 100000 (100ms in microseconds)
     let ret = unsafe { snd_pcm_set_params(pcm, 2, 3, CHANNELS as u32, sample_rate, 1, 100000) };
     if ret < 0 {
-        unsafe { snd_pcm_close(pcm); }
+        unsafe {
+            snd_pcm_close(pcm);
+        }
         return Err(anyhow!("Failed to set PCM parameters, err={}", ret));
     }
 
-    info!("Dynamic ALSA player initialized successfully: dev=default, sample_rate={} Hz, latency=100ms", sample_rate);
+    info!(
+        "Dynamic ALSA player initialized successfully: dev=default, sample_rate={} Hz, latency=100ms",
+        sample_rate
+    );
 
     let mut buffer = vec![0i16; PERIOD_FRAMES * CHANNELS];
     let mut buffering = true;
@@ -162,6 +167,6 @@ fn run_alsa_thread(
     unsafe {
         let _ = snd_pcm_close(pcm);
     }
-    
+
     Ok(())
 }

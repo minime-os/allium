@@ -2,8 +2,8 @@
 // It pumps OS/keyboard events and posts them via channels to the input component.
 
 use crate::commands::ControlEvent;
-use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
 use crate::video::{CapturedFrame, VideoFrameFormat};
+use crate::video::{ScaleMode, ScaleRect, calculate_scale_rect, validate_scaled_rect};
 use anyhow::{Context, Result, anyhow};
 use common::platform::{Key, KeyEvent, simulator::SCREEN_HEIGHT, simulator::SCREEN_WIDTH};
 use log::info;
@@ -42,11 +42,7 @@ struct SimulatorVideoApp {
 }
 
 impl SimulatorVideo {
-    pub fn present(
-        &mut self,
-        frame: &CapturedFrame,
-        format: VideoFrameFormat,
-    ) -> Result<bool> {
+    pub fn present(&mut self, frame: &CapturedFrame, format: VideoFrameFormat) -> Result<bool> {
         self.pump_events()?;
         if self.app.closed {
             return Ok(true);
@@ -91,9 +87,20 @@ impl SimulatorVideo {
         let (out_w, out_h) = (*SCREEN_WIDTH, *SCREEN_HEIGHT);
         let width = NonZeroU32::new(out_w).context("Width zero")?;
         let height = NonZeroU32::new(out_h).context("Height zero")?;
-        let rect = calculate_scale_rect(scale, source_width, source_height, aspect_ratio, out_w, out_h)?;
+        let rect = calculate_scale_rect(
+            scale,
+            source_width,
+            source_height,
+            aspect_ratio,
+            out_w,
+            out_h,
+        )?;
         let pixels = vec![0; width.get() as usize * height.get() as usize];
-        info!("Simulator video initialized at {}x{}", width.get(), height.get());
+        info!(
+            "Simulator video initialized at {}x{}",
+            width.get(),
+            height.get()
+        );
         Ok(Self {
             event_loop: EventLoop::new()?,
             app: SimulatorVideoApp::new(width, height, key_tx, control_tx),
@@ -134,13 +141,20 @@ impl SimulatorVideo {
     }
 
     fn present_pixels(&mut self) -> Result<()> {
-        let surface = self.app.surface.as_mut().context("Simulator video surface not created")?;
-        surface.resize(self.app.width, self.app.height)
+        let surface = self
+            .app
+            .surface
+            .as_mut()
+            .context("Simulator video surface not created")?;
+        surface
+            .resize(self.app.width, self.app.height)
             .map_err(|err| anyhow!("Failed to resize Play softbuffer surface: {}", err))?;
-        let mut buffer = surface.buffer_mut()
+        let mut buffer = surface
+            .buffer_mut()
             .map_err(|err| anyhow!("Failed to get Play softbuffer buffer: {}", err))?;
         buffer.copy_from_slice(&self.pixels);
-        buffer.present()
+        buffer
+            .present()
             .map_err(|err| anyhow!("Failed to present Play softbuffer buffer: {}", err))
     }
 }
@@ -168,10 +182,17 @@ impl SimulatorVideoApp {
             .with_title("Play")
             .with_inner_size(PhysicalSize::new(self.width.get(), self.height.get()))
             .with_resizable(false);
-        let window = Rc::new(event_loop.create_window(attrs).expect("Failed to create window"));
+        let window = Rc::new(
+            event_loop
+                .create_window(attrs)
+                .expect("Failed to create window"),
+        );
         let context = softbuffer::Context::new(window.clone()).expect("Failed context");
-        let mut surface = softbuffer::Surface::new(&context, window.clone()).expect("Failed surface");
-        surface.resize(self.width, self.height).expect("Failed resize");
+        let mut surface =
+            softbuffer::Surface::new(&context, window.clone()).expect("Failed surface");
+        surface
+            .resize(self.width, self.height)
+            .expect("Failed resize");
         self.window = Some(window);
         self.surface = Some(surface);
     }
@@ -214,7 +235,13 @@ impl ApplicationHandler for SimulatorVideoApp {
                 event_loop.exit();
             }
             WindowEvent::KeyboardInput {
-                event: WinitKeyEvent { physical_key: PhysicalKey::Code(kc), state, repeat, .. },
+                event:
+                    WinitKeyEvent {
+                        physical_key: PhysicalKey::Code(kc),
+                        state,
+                        repeat,
+                        ..
+                    },
                 ..
             } => self.handle_keyboard_input(kc, state, repeat),
             _ => {}
@@ -364,4 +391,3 @@ mod tests {
         assert_eq!(output, vec![0x00ff0000; 4]);
     }
 }
-

@@ -57,7 +57,10 @@ impl CoreOptions {
                     );
                     opts.current_values.insert(key, default);
                 } else {
-                    warn!("Core option '{}' has malformed value string: {}", key, value_str);
+                    warn!(
+                        "Core option '{}' has malformed value string: {}",
+                        key, value_str
+                    );
                 }
                 ptr = ptr.add(1);
             }
@@ -223,7 +226,8 @@ impl CoreOptions {
             if opt.values.contains(&value.to_string()) {
                 let old = self.current_values.get(key).cloned();
                 if old.as_deref() != Some(value) {
-                    self.current_values.insert(key.to_string(), value.to_string());
+                    self.current_values
+                        .insert(key.to_string(), value.to_string());
                     self.dirty = true;
                     return true;
                 }

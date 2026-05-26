@@ -9,9 +9,7 @@ use common::platform::{DefaultPlatform, Key, KeyEvent, Platform};
 use common::resources::Resources;
 use common::retroarch::RetroArchCommand;
 use common::stylesheet::Stylesheet;
-use common::view::{
-    ButtonHint, ButtonHints, Label, SettingsList, View,
-};
+use common::view::{ButtonHint, ButtonHints, Label, SettingsList, View};
 use tokio::sync::mpsc::Sender;
 
 /// Play settings overlay rendered inside the Allium in-game menu.
@@ -73,10 +71,8 @@ impl PlayMenu {
         );
 
         let button_hints_rect = button_hints.bounding_box(&styles);
-        let content_top = rect.y
-            + styles.ui.margin_y
-            + styles.ui.ui_font.size as i32
-            + styles.ui.margin_y / 2;
+        let content_top =
+            rect.y + styles.ui.margin_y + styles.ui.ui_font.size as i32 + styles.ui.margin_y / 2;
         let content_height = (button_hints_rect.y - content_top) as u32;
 
         let entry_labels = vec![
@@ -108,12 +104,8 @@ impl PlayMenu {
         let right_views: Vec<Box<dyn View>> = initial_values
             .iter()
             .map(|v| {
-                Box::new(Label::new(
-                    Point::zero(),
-                    v.clone(),
-                    Alignment::Right,
-                    None,
-                )) as Box<dyn View>
+                Box::new(Label::new(Point::zero(), v.clone(), Alignment::Right, None))
+                    as Box<dyn View>
             })
             .collect();
 
@@ -145,8 +137,15 @@ impl PlayMenu {
     pub fn set_value(&mut self, index: usize, value: &str) {
         if index < self.values.len() {
             self.values[index] = value.to_string();
-            self.settings_list
-                .set_right(index, Box::new(Label::new(Point::zero(), value.to_string(), Alignment::Right, None)));
+            self.settings_list.set_right(
+                index,
+                Box::new(Label::new(
+                    Point::zero(),
+                    value.to_string(),
+                    Alignment::Right,
+                    None,
+                )),
+            );
         }
     }
 
@@ -178,26 +177,58 @@ impl PlayMenu {
         self.values[index] = new_value.clone();
         self.settings_list.set_right(
             index,
-            Box::new(Label::new(Point::zero(), new_value.clone(), Alignment::Right, None)),
+            Box::new(Label::new(
+                Point::zero(),
+                new_value.clone(),
+                Alignment::Right,
+                None,
+            )),
         );
     }
 
     async fn send_udp_command(index: usize, value: &str) -> Result<()> {
         match index {
-            0 => RetroArchCommand::SetScale(value.to_lowercase()).send().await?,
-            1 => RetroArchCommand::SetEffect(value.to_lowercase()).send().await?,
-            2 => RetroArchCommand::SetSharpness(value.to_lowercase()).send().await?,
-            3 => RetroArchCommand::SetTearing(value.to_lowercase()).send().await?,
-            4 => RetroArchCommand::SetOverclock(value.to_lowercase()).send().await?,
-            5 => RetroArchCommand::SetThreadVideo(value.eq_ignore_ascii_case("On")).send().await?,
-            6 => RetroArchCommand::SetDebugHUD(value.eq_ignore_ascii_case("On")).send().await?,
+            0 => {
+                RetroArchCommand::SetScale(value.to_lowercase())
+                    .send()
+                    .await?
+            }
+            1 => {
+                RetroArchCommand::SetEffect(value.to_lowercase())
+                    .send()
+                    .await?
+            }
+            2 => {
+                RetroArchCommand::SetSharpness(value.to_lowercase())
+                    .send()
+                    .await?
+            }
+            3 => {
+                RetroArchCommand::SetTearing(value.to_lowercase())
+                    .send()
+                    .await?
+            }
+            4 => {
+                RetroArchCommand::SetOverclock(value.to_lowercase())
+                    .send()
+                    .await?
+            }
+            5 => {
+                RetroArchCommand::SetThreadVideo(value.eq_ignore_ascii_case("On"))
+                    .send()
+                    .await?
+            }
+            6 => {
+                RetroArchCommand::SetDebugHUD(value.eq_ignore_ascii_case("On"))
+                    .send()
+                    .await?
+            }
             7 => {
                 let speed = value
                     .trim_end_matches('x')
                     .parse::<u8>()
                     .unwrap_or(1)
-                    .min(8)
-                    .max(1);
+                    .clamp(1, 8);
                 RetroArchCommand::SetMaxFF(speed).send().await?;
             }
             _ => {}
@@ -248,16 +279,12 @@ impl View for PlayMenu {
                 bubble.push_back(common::command::Command::CloseView);
                 return Ok(true);
             }
-            KeyEvent::Pressed(Key::Left) | KeyEvent::Autorepeat(Key::Left)
-                if selected < 8 =>
-            {
+            KeyEvent::Pressed(Key::Left) | KeyEvent::Autorepeat(Key::Left) if selected < 8 => {
                 self.cycle_value(selected, false);
                 Self::send_udp_command(selected, &self.values[selected].clone()).await?;
                 return Ok(true);
             }
-            KeyEvent::Pressed(Key::Right) | KeyEvent::Autorepeat(Key::Right)
-                if selected < 8 =>
-            {
+            KeyEvent::Pressed(Key::Right) | KeyEvent::Autorepeat(Key::Right) if selected < 8 => {
                 self.cycle_value(selected, true);
                 Self::send_udp_command(selected, &self.values[selected].clone()).await?;
                 return Ok(true);
@@ -283,7 +310,11 @@ impl View for PlayMenu {
     }
 
     fn children_mut(&mut self) -> Vec<&mut dyn View> {
-        vec![&mut self.game_name, &mut self.settings_list, &mut self.button_hints]
+        vec![
+            &mut self.game_name,
+            &mut self.settings_list,
+            &mut self.button_hints,
+        ]
     }
 
     fn bounding_box(&mut self, _styles: &Stylesheet) -> Rect {

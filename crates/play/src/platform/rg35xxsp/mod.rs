@@ -9,9 +9,9 @@ use crate::input::JoypadState;
 use crate::video::ScaleMode;
 use anyhow::Result;
 use audio::Rg35xxspAudio;
-use video::Rg35xxspVideo;
 use evdev::{Device, EventStream, EventType};
 use std::fs;
+use video::Rg35xxspVideo;
 
 pub struct Rg35xxspPlatform {
     pub video: Rg35xxspVideo,
@@ -78,7 +78,8 @@ impl Rg35xxspPlatform {
                 if event.event_type() == EventType::KEY {
                     let key = event.code();
                     let key: common::platform::Key = key.into();
-                    if event.timestamp().elapsed().unwrap() > common::constants::MAXIMUM_FRAME_TIME {
+                    if event.timestamp().elapsed().unwrap() > common::constants::MAXIMUM_FRAME_TIME
+                    {
                         continue;
                     }
                     joypad.apply(match event.value() {
@@ -116,14 +117,17 @@ impl Drop for Rg35xxspPlatform {
 }
 
 pub fn init_logging() -> Result<()> {
-    use std::fs;
+    use common::constants::ALLIUM_PLAY_LOG;
     use log::LevelFilter;
     use simple_logger::SimpleLogger;
-    use common::constants::ALLIUM_PLAY_LOG;
+    use std::fs;
 
     let _ = fs::write("/mnt/SDCARD/.allium/logs/play_started.marker", "started");
     let _ = common::log::init_hardware_log(&*ALLIUM_PLAY_LOG);
-    println!("--- Play starting at {} ---", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "--- Play starting at {} ---",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
 
     SimpleLogger::new().with_level(LevelFilter::Info).init()?;
     Ok(())

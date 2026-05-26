@@ -1,21 +1,27 @@
 // Content loading: resolves ROM paths, handles ZIP extraction, and constructs
 // the libretro game info descriptor passed to the core.
 
+use crate::core::CoreInfo;
+use crate::paths::PlayPaths;
+use crate::unzip;
+use anyhow::{Result, anyhow};
+use libretro::retro_game_info;
 use std::ffi::CString;
 use std::fs;
 use std::os::raw::c_void;
 use std::ptr;
-use anyhow::{Result, anyhow};
-use crate::core::CoreInfo;
-use crate::paths::PlayPaths;
-use crate::unzip;
-use libretro::retro_game_info;
 
 pub fn resolve_and_prepare_rom(
     paths: &PlayPaths,
     sys_info: &CoreInfo,
-) -> Result<( retro_game_info, Option<unzip::ResolvedRom>, Option<Vec<u8>>, Option<CString> ) > {
-    let resolved = unzip::resolve_rom_path(&paths.rom,
+) -> Result<(
+    retro_game_info,
+    Option<unzip::ResolvedRom>,
+    Option<Vec<u8>>,
+    Option<CString>,
+)> {
+    let resolved = unzip::resolve_rom_path(
+        &paths.rom,
         &sys_info.valid_extensions,
         sys_info.block_extract,
     )?;

@@ -1,7 +1,7 @@
 // Runtime HUD overlay: FPS, CPU metrics, and custom 5x9 bitmap font blitting.
 
+use crate::video::{ScaleMode, ScaleRect, VideoFrameFormat, calculate_scale_rect};
 use std::time::{Duration, Instant};
-use crate::video::{ScaleMode, calculate_scale_rect, ScaleRect, VideoFrameFormat};
 
 pub struct HudState {
     enabled: bool,
@@ -56,7 +56,8 @@ impl HudState {
         }
     }
 
-    fn format_hud_texts(&self,
+    fn format_hud_texts(
+        &self,
         width: u32,
         height: u32,
         scale: u32,
@@ -64,7 +65,10 @@ impl HudState {
     ) -> (String, String, String, String) {
         let tl = format!("{}x{} {}x", width, height, scale);
         let tr = format!("{},{} {}x{}", rect.x, rect.y, width * scale, height * scale);
-        let bl = format!("{:.1}/{:.1} {}%", self.fps_val, self.cpu_val, self.use_val as i32);
+        let bl = format!(
+            "{:.1}/{:.1} {}%",
+            self.fps_val, self.cpu_val, self.use_val as i32
+        );
         let br = format!("{}x{}", rect.width, rect.height);
         (tl, tr, bl, br)
     }
@@ -80,7 +84,12 @@ impl HudState {
         aspect_ratio: f32,
     ) {
         let rect = calculate_scale_rect(scale_mode, width, height, aspect_ratio, 640, 480)
-            .unwrap_or(ScaleRect { x: 0, y: 0, width: 640, height: 480 });
+            .unwrap_or(ScaleRect {
+                x: 0,
+                y: 0,
+                width: 640,
+                height: 480,
+            });
         let scale = (640 / width).min(480 / height).max(1);
         let (tl, tr, bl, br) = self.format_hud_texts(width, height, scale, &rect);
 
@@ -115,7 +124,8 @@ const FONT_MAP: [(char, &str); 18] = [
 ];
 
 fn get_char_bitmap(c: char) -> &'static str {
-    FONT_MAP.iter()
+    FONT_MAP
+        .iter()
         .find(|&&(ch, _)| ch == c)
         .map(|&(_, map)| map)
         .unwrap_or("                                             ")
@@ -204,9 +214,23 @@ fn blit_text(
     format: VideoFrameFormat,
 ) {
     let w = (6 * text.len() as i32) - 1;
-    if ox < 0 { ox += width as i32 - w; }
-    if oy < 0 { oy += height as i32 - 9; }
-    draw_black_rect(ox - 1, oy - 1, w + 2, 11, data, pitch, format, width, height);
+    if ox < 0 {
+        ox += width as i32 - w;
+    }
+    if oy < 0 {
+        oy += height as i32 - 9;
+    }
+    draw_black_rect(
+        ox - 1,
+        oy - 1,
+        w + 2,
+        11,
+        data,
+        pitch,
+        format,
+        width,
+        height,
+    );
     let mut curr_x = ox;
     for c in text.chars() {
         draw_character(c, curr_x, oy, data, pitch, format, width, height);

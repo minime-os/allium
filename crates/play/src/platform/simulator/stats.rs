@@ -1,4 +1,3 @@
-
 pub struct SimulatorStats;
 
 impl SimulatorStats {

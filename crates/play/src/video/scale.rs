@@ -112,7 +112,9 @@ fn scale_native(
     output_width: u32,
     output_height: u32,
 ) -> ScaleRect {
-    let scale = (output_width / source_width).min(output_height / source_height).max(1);
+    let scale = (output_width / source_width)
+        .min(output_height / source_height)
+        .max(1);
     let width = (source_width * scale).min(output_width);
     let height = (source_height * scale).min(output_height);
     center_rect(width, height, output_width, output_height)
@@ -136,9 +138,15 @@ fn scale_aspect(
     let aspect = get_aspect_ratio(source_width, source_height, aspect_ratio);
     let output_ratio = output_width as f64 / output_height as f64;
     let (width, height) = if aspect > output_ratio {
-        (output_width, ((output_width as f64 / aspect).round() as u32).max(1))
+        (
+            output_width,
+            ((output_width as f64 / aspect).round() as u32).max(1),
+        )
     } else {
-        (((output_height as f64 * aspect).round() as u32).max(1), output_height)
+        (
+            ((output_height as f64 * aspect).round() as u32).max(1),
+            output_height,
+        )
     };
     center_rect(width, height, output_width, output_height)
 }
@@ -178,11 +186,7 @@ fn center_rect(width: u32, height: u32, output_width: u32, output_height: u32) -
     }
 }
 
-pub fn validate_scaled_rect(
-    output_width: u32,
-    output_height: u32,
-    rect: ScaleRect,
-) -> Result<()> {
+pub fn validate_scaled_rect(output_width: u32, output_height: u32, rect: ScaleRect) -> Result<()> {
     if rect.width == 0 || rect.height == 0 {
         return Err(anyhow!("Scale destination size must be non-zero"));
     }

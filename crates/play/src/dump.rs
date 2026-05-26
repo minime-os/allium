@@ -1,14 +1,18 @@
 // Developer frame dump utilities: encode captured frames as PPM images.
 
-use anyhow::{Result, anyhow};
-use std::fs;
-use std::path::Path;
+use crate::video::VideoFrameFormat;
 use crate::video::{
     CapturedFrame, RGB565_BYTES_PER_PIXEL, XRGB8888_BYTES_PER_PIXEL, rgb565_to_rgb, validate_frame,
 };
-use crate::video::VideoFrameFormat;
+use anyhow::{Result, anyhow};
+use std::fs;
+use std::path::Path;
 
-pub fn dump_frame(path: &Path, frame: &CapturedFrame, format: Option<VideoFrameFormat>) -> Result<()> {
+pub fn dump_frame(
+    path: &Path,
+    frame: &CapturedFrame,
+    format: Option<VideoFrameFormat>,
+) -> Result<()> {
     let ppm_data = match format {
         Some(VideoFrameFormat::Rgb565) => encode_rgb565(frame)?,
         Some(VideoFrameFormat::Xrgb8888) => encode_xrgb8888(frame)?,

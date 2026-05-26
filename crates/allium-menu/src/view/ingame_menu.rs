@@ -689,17 +689,28 @@ where
 
 /// Check if a Play process is currently running by scanning /proc/*/cmdline.
 fn is_play_process_running() -> bool {
-    let Ok(entries) = std::fs::read_dir("/proc") else { return false; };
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
     for entry in entries.flatten() {
-        let Ok(meta) = entry.metadata() else { continue; };
-        if !meta.is_dir() { continue; }
-        let Some(name) = entry.file_name().into_string().ok() else { continue; };
-        if !name.chars().all(|c| c.is_ascii_digit()) { continue; }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let Some(name) = entry.file_name().into_string().ok() else {
+            continue;
+        };
+        if !name.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
         let cmdline = entry.path().join("cmdline");
-        if let Ok(content) = std::fs::read_to_string(&cmdline) {
-            if content.contains(".allium/bin/play") {
-                return true;
-            }
+        let Ok(content) = std::fs::read_to_string(&cmdline) else {
+            continue;
+        };
+        if content.contains(".allium/bin/play") {
+            return true;
         }
     }
     false

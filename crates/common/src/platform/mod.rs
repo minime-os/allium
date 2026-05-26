@@ -1,9 +1,9 @@
 #[cfg(feature = "miyoo")]
 pub mod miyoo;
-#[cfg(feature = "simulator")]
-pub mod simulator;
 #[cfg(feature = "rg35xxsp")]
 pub mod rg35xxsp;
+#[cfg(feature = "simulator")]
+pub mod simulator;
 
 #[cfg(not(any(feature = "miyoo", feature = "simulator", feature = "rg35xxsp")))]
 mod mock;
@@ -84,7 +84,9 @@ pub enum KeyEvent {
     Autorepeat(Key),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Enum, Display, EnumString)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Enum, Display, EnumString,
+)]
 pub enum Key {
     Up,
     Down,

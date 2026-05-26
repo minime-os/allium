@@ -1,20 +1,20 @@
-use libretro::*;
-use crate::config::{Args, PlayConfig};
-use crate::controls::{ControlBindings, InputDescriptors, ShortcutBindings};
-use crate::core_options::{CoreOptions, CoreOptionsConfig};
-use crate::settings::{FrontendSettings, SaveScope};
 use crate::audio::{AudioProducer, AudioQueue, validate_sample_rate};
 use crate::commands::{CommandState, ControlEvent};
+use crate::config::{Args, PlayConfig};
+use crate::content;
+use crate::controls::{ControlBindings, InputDescriptors, ShortcutBindings};
+use crate::core_options::{CoreOptions, CoreOptionsConfig};
 use crate::hud::HudState;
 use crate::input::JoypadState;
 use crate::paths::PlayPaths;
 use crate::save;
-use crate::video::{ScaleMode, CapturedFrame, VideoFrameFormat, FrameData};
-use crate::unzip;
-use crate::content;
 use crate::settings;
+use crate::settings::{FrontendSettings, SaveScope};
+use crate::unzip;
+use crate::video::{CapturedFrame, FrameData, ScaleMode, VideoFrameFormat};
 use anyhow::{Context, Result, anyhow};
 use libloading::Library;
+use libretro::*;
 use log::{debug, info, warn};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_uint, c_void};
@@ -127,7 +127,10 @@ impl CoreSymbols {
     unsafe fn load(lib: &Library) -> Result<Self> {
         let lifecycle = unsafe { CoreLifecycleSymbols::load(lib)? };
         let gameplay = unsafe { CoreGameplaySymbols::load(lib)? };
-        Ok(Self { lifecycle, gameplay })
+        Ok(Self {
+            lifecycle,
+            gameplay,
+        })
     }
 
     fn check_api_version(&self) -> Result<()> {
@@ -150,11 +153,15 @@ impl CoreSymbols {
     }
 
     fn init(&self) {
-        unsafe { (self.lifecycle.retro_init)(); }
+        unsafe {
+            (self.lifecycle.retro_init)();
+        }
     }
 
     fn deinit(&self) {
-        unsafe { (self.lifecycle.retro_deinit)(); }
+        unsafe {
+            (self.lifecycle.retro_deinit)();
+        }
     }
 }
 
@@ -184,27 +191,42 @@ impl Core {
     }
 
     pub fn serialize(&self, data: &mut [u8]) -> bool {
-        unsafe { (self.symbols.gameplay.retro_serialize)(data.as_mut_ptr() as *mut c_void, data.len()) }
+        unsafe {
+            (self.symbols.gameplay.retro_serialize)(data.as_mut_ptr() as *mut c_void, data.len())
+        }
     }
 
     pub fn unserialize(&self, data: &[u8]) -> bool {
-        unsafe { (self.symbols.gameplay.retro_unserialize)(data.as_ptr() as *const c_void, data.len()) }
+        unsafe {
+            (self.symbols.gameplay.retro_unserialize)(data.as_ptr() as *const c_void, data.len())
+        }
     }
 
     pub fn memory_region(&self, id: c_uint) -> Option<(*mut u8, usize)> {
         let size = unsafe { (self.symbols.gameplay.retro_get_memory_size)(id) };
-        if size == 0 { return None; }
+        if size == 0 {
+            return None;
+        }
         let data = unsafe { (self.symbols.gameplay.retro_get_memory_data)(id) };
-        if data.is_null() { return None; }
+        if data.is_null() {
+            return None;
+        }
         Some((data as *mut u8, size))
     }
 
     pub fn get_system_av_info(&self) -> retro_system_av_info {
         let mut info = retro_system_av_info {
             geometry: retro_game_geometry {
-                base_width: 0, base_height: 0, max_width: 0, max_height: 0, aspect_ratio: 0.0,
+                base_width: 0,
+                base_height: 0,
+                max_width: 0,
+                max_height: 0,
+                aspect_ratio: 0.0,
             },
-            timing: retro_system_timing { fps: 0.0, sample_rate: 0.0 },
+            timing: retro_system_timing {
+                fps: 0.0,
+                sample_rate: 0.0,
+            },
         };
         unsafe { (self.symbols.lifecycle.retro_get_system_av_info)(&mut info) };
         info
@@ -212,8 +234,11 @@ impl Core {
 
     pub fn get_system_info(&self) -> CoreInfo {
         let mut info = retro_system_info {
-            library_name: ptr::null(), library_version: ptr::null(),
-            valid_extensions: ptr::null(), need_fullpath: false, block_extract: false,
+            library_name: ptr::null(),
+            library_version: ptr::null(),
+            valid_extensions: ptr::null(),
+            need_fullpath: false,
+            block_extract: false,
         };
         unsafe {
             (self.symbols.lifecycle.retro_get_system_info)(&mut info);
@@ -229,7 +254,8 @@ impl Core {
 }
 
 unsafe fn load_symbol<T>(lib: &Library, name: &[u8]) -> Result<T>
-where T: Copy,
+where
+    T: Copy,
 {
     unsafe { lib.get::<T>(name) }
         .map(|symbol| *symbol)
@@ -237,8 +263,12 @@ where T: Copy,
 }
 
 unsafe fn c_string(value: *const std::os::raw::c_char) -> String {
-    if value.is_null() { String::new() } else {
-        unsafe { CStr::from_ptr(value) }.to_string_lossy().into_owned()
+    if value.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(value) }
+            .to_string_lossy()
+            .into_owned()
     }
 }
 
@@ -312,9 +342,15 @@ impl ActiveSession {
 
         let core = unsafe { Core::load(&ctx.paths.core_path)? };
         let info = core.get_system_info();
-        info!("Core loaded: {} ({})", info.library_name, info.library_version);
+        info!(
+            "Core loaded: {} ({})",
+            info.library_name, info.library_version
+        );
         info!("Extensions: {}", info.valid_extensions);
-        info!("need_fullpath={}, block_extract={}", info.need_fullpath, info.block_extract);
+        info!(
+            "need_fullpath={}, block_extract={}",
+            info.need_fullpath, info.block_extract
+        );
 
         let (game_info, resolved, _rom_data, _rom_path) =
             content::resolve_and_prepare_rom(&ctx.paths, &info)?;
@@ -323,9 +359,7 @@ impl ActiveSession {
         let frontend_settings = settings::load_frontend_settings(&ctx.paths);
         info!(
             "Frontend settings loaded: scale={:?}, effect={:?}, sharpness={:?}",
-            frontend_settings.scale_mode,
-            frontend_settings.effect,
-            frontend_settings.sharpness,
+            frontend_settings.scale_mode, frontend_settings.effect, frontend_settings.sharpness,
         );
         let resolved_rom = resolved.unwrap_or_else(|| unzip::ResolvedRom {
             active_path: ctx.paths.rom.clone(),
@@ -340,8 +374,17 @@ impl ActiveSession {
             ctx,
             core,
             av_info: retro_system_av_info {
-                geometry: retro_game_geometry { base_width: 0, base_height: 0, max_width: 0, max_height: 0, aspect_ratio: 0.0 },
-                timing: retro_system_timing { fps: 0.0, sample_rate: 0.0 },
+                geometry: retro_game_geometry {
+                    base_width: 0,
+                    base_height: 0,
+                    max_width: 0,
+                    max_height: 0,
+                    aspect_ratio: 0.0,
+                },
+                timing: retro_system_timing {
+                    fps: 0.0,
+                    sample_rate: 0.0,
+                },
             },
             pixel_format: VideoFrameFormat::Rgb565,
             audio_producer: temp_prod,
@@ -381,8 +424,10 @@ impl ActiveSession {
         let av_info = session.core.get_system_av_info();
         info!(
             "AV Info: {}x{} @ {} fps, sample_rate: {}",
-            av_info.geometry.base_width, av_info.geometry.base_height,
-            av_info.timing.fps, av_info.timing.sample_rate
+            av_info.geometry.base_width,
+            av_info.geometry.base_height,
+            av_info.timing.fps,
+            av_info.timing.sample_rate
         );
 
         let sample_rate = validate_sample_rate(av_info.timing.sample_rate)?;
@@ -398,9 +443,7 @@ impl ActiveSession {
         Self::new_bare(_ctx)
     }
 
-    pub fn emulate_single_frame(&mut self,
-        frames_run: &mut u64,
-    ) {
+    pub fn emulate_single_frame(&mut self, frames_run: &mut u64) {
         if !self.paused {
             self.core.run();
             *frames_run += 1;
@@ -419,9 +462,7 @@ impl ActiveSession {
         // When HUD is off, present directly from the libretro callback buffer
         // to avoid the ~0.1–0.2 ms per-frame copy into captured_frame.data.
         if let Some((ptr, width, height, pitch)) = self.last_raw_frame.take() {
-            let borrowed_data = unsafe {
-                std::slice::from_raw_parts(ptr, height as usize * pitch)
-            };
+            let borrowed_data = unsafe { std::slice::from_raw_parts(ptr, height as usize * pitch) };
             let view = CapturedFrame::new(
                 FrameData::borrowed(borrowed_data.as_ptr(), borrowed_data.len()),
                 width,
@@ -437,10 +478,7 @@ impl ActiveSession {
         Ok(drv.video.present(&self.captured_frame, self.pixel_format)?)
     }
 
-    pub fn apply_scale(
-        &self,
-        drv: &mut crate::platform::DefaultPlatform,
-    ) -> Result<()> {
+    pub fn apply_scale(&self, drv: &mut crate::platform::DefaultPlatform) -> Result<()> {
         drv.video.set_scale(
             self.scale_mode,
             self.av_info.geometry.base_width,
@@ -451,7 +489,10 @@ impl ActiveSession {
 
     // Apply all current frontend_settings to the running session and platform.
     // Called after platform creation and on RELOAD_CONFIG.
-    pub fn apply_frontend_settings(&mut self, drv: &mut crate::platform::DefaultPlatform) -> Result<()> {
+    pub fn apply_frontend_settings(
+        &mut self,
+        drv: &mut crate::platform::DefaultPlatform,
+    ) -> Result<()> {
         self.scale_mode = self.frontend_settings.scale_mode;
         self.apply_scale(drv)?;
         drv.video.set_effect(self.frontend_settings.effect);
@@ -482,7 +523,8 @@ impl ActiveSession {
         Ok(())
     }
 
-    pub fn apply_control_event(&mut self,
+    pub fn apply_control_event(
+        &mut self,
         event: ControlEvent,
         drv: &mut crate::platform::DefaultPlatform,
     ) -> Result<()> {
@@ -503,7 +545,9 @@ impl ActiveSession {
             }
             ControlEvent::SelectStateSlot(slot) => self.select_state_slot(slot)?,
             ControlEvent::StateSlotPlus => self.select_state_slot((self.state_slot + 1).min(9))?,
-            ControlEvent::StateSlotMinus => self.select_state_slot((self.state_slot - 1).max(-1))?,
+            ControlEvent::StateSlotMinus => {
+                self.select_state_slot((self.state_slot - 1).max(-1))?
+            }
             ControlEvent::SetPaused(paused) => self.paused = paused,
             ControlEvent::TogglePaused => self.paused = !self.paused,
             ControlEvent::ToggleFastForward => {
@@ -589,13 +633,20 @@ impl ActiveSession {
                         warn!("Failed to save core options: {}", e);
                     }
                 } else {
-                    info!("SET_CORE_OPTION: {} = {} (no change or invalid)", key, value);
+                    info!(
+                        "SET_CORE_OPTION: {} = {} (no change or invalid)",
+                        key, value
+                    );
                 }
             }
             ControlEvent::SetControl { retro_button, key } => {
                 info!("SET_CONTROL: {} -> {}", retro_button, key);
                 self.control_bindings.set(&retro_button, &key);
-                crate::controls::save_control_bindings(&self.ctx.paths, SaveScope::System, &self.control_bindings)?;
+                crate::controls::save_control_bindings(
+                    &self.ctx.paths,
+                    SaveScope::System,
+                    &self.control_bindings,
+                )?;
             }
             ControlEvent::SetShortcut { action, combo } => {
                 info!("SET_SHORTCUT: {} -> {}", action, combo);
@@ -643,8 +694,7 @@ impl Drop for ActiveSession {
 // ---- Callback methods (called from callbacks.rs via global handler) ----
 
 impl ActiveSession {
-    pub(crate) fn on_environment(&mut self, cmd: c_uint, data: *mut c_void,
-    ) -> bool {
+    pub(crate) fn on_environment(&mut self, cmd: c_uint, data: *mut c_void) -> bool {
         let result = match cmd {
             RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => self.set_pixel_format(data),
             RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => self.set_input_descriptors(data),
@@ -654,7 +704,9 @@ impl ActiveSession {
             RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL => self.set_core_options_v2_intl(data),
             RETRO_ENVIRONMENT_GET_VARIABLE => self.get_variable(data),
             RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE => self.get_variable_update(data),
-            RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => self.write_env_path(data, &self.ctx.system_dir),
+            RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => {
+                self.write_env_path(data, &self.ctx.system_dir)
+            }
             RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => self.write_env_path(data, &self.ctx.save_dir),
             RETRO_ENVIRONMENT_GET_FASTFORWARDING => self.write_env_bool(data, self.fast_forwarding),
             RETRO_ENVIRONMENT_GET_CAN_DUPE => self.write_env_bool(data, true),
@@ -701,7 +753,13 @@ impl ActiveSession {
 
     pub(crate) fn on_input_poll(&mut self) {}
 
-    pub(crate) fn on_input_state(&self, port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
+    pub(crate) fn on_input_state(
+        &self,
+        port: c_uint,
+        device: c_uint,
+        index: c_uint,
+        id: c_uint,
+    ) -> i16 {
         if port != 0 || index != 0 || device & RETRO_DEVICE_MASK != RETRO_DEVICE_JOYPAD {
             return 0;
         }
@@ -719,8 +777,12 @@ impl ActiveSession {
             warn!("Core requested SET_INPUT_DESCRIPTORS with null data");
             return false;
         }
-        let descriptors = unsafe { InputDescriptors::from_raw(data as *const libretro::retro_input_descriptor) };
-        info!("Core provided {} input descriptor(s)", descriptors.buttons.len());
+        let descriptors =
+            unsafe { InputDescriptors::from_raw(data as *const libretro::retro_input_descriptor) };
+        info!(
+            "Core provided {} input descriptor(s)",
+            descriptors.buttons.len()
+        );
         self.input_descriptors = descriptors;
         false // false = don't signal re-init needed
     }
@@ -750,7 +812,8 @@ impl ActiveSession {
             warn!("Core requested SET_VARIABLES with null data");
             return false;
         }
-        self.core_options = unsafe { CoreOptions::from_variables(data as *const libretro::retro_variable) };
+        self.core_options =
+            unsafe { CoreOptions::from_variables(data as *const libretro::retro_variable) };
         self.load_persisted_core_options();
         true
     }
@@ -830,7 +893,9 @@ impl ActiveSession {
             .into_owned();
         if let Some(value_ptr) = self.core_options.get_ptr(&key) {
             var.value = value_ptr as _;
-            debug!("GET_VARIABLE: {} = {:?}", key, unsafe { std::ffi::CStr::from_ptr(var.value) });
+            debug!("GET_VARIABLE: {} = {:?}", key, unsafe {
+                std::ffi::CStr::from_ptr(var.value)
+            });
             return true;
         }
         warn!("Core requested unknown variable: {}", key);
@@ -858,18 +923,22 @@ impl ActiveSession {
 
     pub fn save_core_options(&self) -> Result<()> {
         let path = self.ctx.paths.config_dir.join("core_options.toml");
-        std::fs::create_dir_all(&self.ctx.paths.config_dir).context("Failed to create config dir")?;
+        std::fs::create_dir_all(&self.ctx.paths.config_dir)
+            .context("Failed to create config dir")?;
         let config = CoreOptionsConfig {
             options: self.core_options.current_values.clone(),
         };
-        let content = toml::to_string_pretty(&config).context("Failed to serialise core options")?;
+        let content =
+            toml::to_string_pretty(&config).context("Failed to serialise core options")?;
         std::fs::write(&path, content).context("Failed to write core_options.toml")?;
         info!("Saved core options to {:?}", path);
         Ok(())
     }
 
     fn set_message(&self, data: *mut c_void) -> bool {
-        if data.is_null() { return false; }
+        if data.is_null() {
+            return false;
+        }
         info!("Core sent SET_MESSAGE: handled=false (not displayed)");
         false
     }
@@ -914,11 +983,7 @@ impl ActiveSession {
         }
     }
 
-    fn draw_refresh_hud(&mut self,
-        width: c_uint,
-        height: c_uint,
-        pitch: usize,
-    ) {
+    fn draw_refresh_hud(&mut self, width: c_uint, height: c_uint, pitch: usize) {
         if self.hud_state.is_enabled() {
             self.hud_state.update(self.host_cpu);
             let aspect = self.av_info.geometry.aspect_ratio;
@@ -934,16 +999,23 @@ impl ActiveSession {
         }
     }
 
-    fn write_env_path(&self, data: *mut c_void, path: &CString,
-    ) -> bool {
-        if data.is_null() { return false; }
-        unsafe { *(data as *mut *const std::os::raw::c_char) = path.as_ptr(); }
+    fn write_env_path(&self, data: *mut c_void, path: &CString) -> bool {
+        if data.is_null() {
+            return false;
+        }
+        unsafe {
+            *(data as *mut *const std::os::raw::c_char) = path.as_ptr();
+        }
         true
     }
 
     fn write_env_bool(&self, data: *mut c_void, value: bool) -> bool {
-        if data.is_null() { return false; }
-        unsafe { *(data as *mut bool) = value; }
+        if data.is_null() {
+            return false;
+        }
+        unsafe {
+            *(data as *mut bool) = value;
+        }
         true
     }
 }
@@ -958,13 +1030,17 @@ static mut CALLBACK_HANDLER: Option<*mut ActiveSession> = None;
 /// Registers the active callback handler globally.
 /// This must be called before running a session so core events find a valid destination.
 pub unsafe fn set_handler(handler: *mut ActiveSession) {
-    unsafe { CALLBACK_HANDLER = Some(handler); }
+    unsafe {
+        CALLBACK_HANDLER = Some(handler);
+    }
 }
 
 /// Unregisters the globally active callback handler.
 /// This must be called immediately when a session ends to avoid stale dangling pointers.
 pub unsafe fn clear_handler() {
-    unsafe { CALLBACK_HANDLER = None; }
+    unsafe {
+        CALLBACK_HANDLER = None;
+    }
 }
 
 pub unsafe extern "C" fn environment_callback(cmd: c_uint, data: *mut c_void) -> bool {
@@ -1004,4 +1080,3 @@ pub unsafe extern "C" fn input_state_callback(
 unsafe fn with_session<T>(f: impl FnOnce(&mut ActiveSession) -> T) -> Option<T> {
     unsafe { CALLBACK_HANDLER.and_then(|handler| handler.as_mut()).map(f) }
 }
-

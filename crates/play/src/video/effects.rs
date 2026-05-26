@@ -82,13 +82,19 @@ mod tests {
 
     #[test]
     fn none_effect_is_identity() {
-        assert_eq!(apply_rgb565_effect(0xFFFF, ScreenEffect::None, 2, 0, 0), 0xFFFF);
+        assert_eq!(
+            apply_rgb565_effect(0xFFFF, ScreenEffect::None, 2, 0, 0),
+            0xFFFF
+        );
     }
 
     #[test]
     fn line_darkens_odd_rows() {
         let pixel = 0xFFFF;
-        assert_eq!(apply_rgb565_effect(pixel, ScreenEffect::Line, 2, 0, 0), pixel);
+        assert_eq!(
+            apply_rgb565_effect(pixel, ScreenEffect::Line, 2, 0, 0),
+            pixel
+        );
         let dimmed = apply_rgb565_effect(pixel, ScreenEffect::Line, 2, 0, 1);
         assert!(dimmed < pixel);
     }
@@ -97,7 +103,10 @@ mod tests {
     fn grid_darkens_checkerboard() {
         let pixel = 0xFFFF;
         // (0+0) even → bright
-        assert_eq!(apply_rgb565_effect(pixel, ScreenEffect::Grid, 2, 0, 0), pixel);
+        assert_eq!(
+            apply_rgb565_effect(pixel, ScreenEffect::Grid, 2, 0, 0),
+            pixel
+        );
         // (1+0) odd → dimmed
         let dimmed = apply_rgb565_effect(pixel, ScreenEffect::Grid, 2, 1, 0);
         assert!(dimmed < pixel);

@@ -86,7 +86,8 @@ impl CommandState {
     }
 
     pub fn set_state_slot(&self, state_slot: i8) {
-        self.state_slot.store(state_slot, std::sync::atomic::Ordering::Relaxed);
+        self.state_slot
+            .store(state_slot, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn state_slot(&self) -> i8 {
@@ -102,7 +103,10 @@ pub async fn run_command_server(
 ) -> anyhow::Result<()> {
     let socket = tokio::net::UdpSocket::bind(common::constants::RETROARCH_UDP_SOCKET).await?;
     let mut buf = [0u8; 256];
-    debug!("Play UDP command server bound at {}", common::constants::RETROARCH_UDP_SOCKET);
+    debug!(
+        "Play UDP command server bound at {}",
+        common::constants::RETROARCH_UDP_SOCKET
+    );
     while process_next_datagram(&socket, &mut buf, &tx, &state).await? {}
     Ok(())
 }
@@ -125,7 +129,9 @@ async fn process_next_datagram(
 ) -> anyhow::Result<bool> {
     let (len, peer) = socket.recv_from(buf).await?;
     let raw = String::from_utf8_lossy(&buf[..len]);
-    let Some(cmd) = parse_udp_command(&raw) else { return Ok(true); };
+    let Some(cmd) = parse_udp_command(&raw) else {
+        return Ok(true);
+    };
     if let Some(reply) = reply_for_command(&cmd, state) {
         socket.send_to(reply.as_bytes(), peer).await?;
     } else if let Some(ev) = ControlEvent::from_retroarch_command(cmd) {
@@ -134,7 +140,10 @@ async fn process_next_datagram(
     Ok(true)
 }
 
-pub fn reply_for_command(command: &common::retroarch::RetroArchCommand, state: &CommandState) -> Option<String> {
+pub fn reply_for_command(
+    command: &common::retroarch::RetroArchCommand,
+    state: &CommandState,
+) -> Option<String> {
     use common::retroarch::RetroArchCommand;
     match command {
         RetroArchCommand::GetInfo => Some(format!("GET_INFO 0 0 {}", state.state_slot())),
@@ -181,15 +190,21 @@ mod tests {
             Some(ControlEvent::SetEffect("grid".to_string()))
         );
         assert_eq!(
-            ControlEvent::from_retroarch_command(RetroArchCommand::SetSharpness("sharp".to_string())),
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetSharpness(
+                "sharp".to_string()
+            )),
             Some(ControlEvent::SetSharpness("sharp".to_string()))
         );
         assert_eq!(
-            ControlEvent::from_retroarch_command(RetroArchCommand::SetTearing("strict".to_string())),
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetTearing(
+                "strict".to_string()
+            )),
             Some(ControlEvent::SetTearing("strict".to_string()))
         );
         assert_eq!(
-            ControlEvent::from_retroarch_command(RetroArchCommand::SetOverclock("performance".to_string())),
+            ControlEvent::from_retroarch_command(RetroArchCommand::SetOverclock(
+                "performance".to_string()
+            )),
             Some(ControlEvent::SetOverclock("performance".to_string()))
         );
         assert_eq!(

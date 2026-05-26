@@ -154,13 +154,23 @@ impl RetroArchCommand {
             RetroArchCommand::SetSharpness(mode) => Cow::Owned(format!("SET_SHARPNESS {mode}")),
             RetroArchCommand::SetTearing(mode) => Cow::Owned(format!("SET_TEARING {mode}")),
             RetroArchCommand::SetOverclock(mode) => Cow::Owned(format!("SET_OVERCLOCK {mode}")),
-            RetroArchCommand::SetThreadVideo(enabled) => Cow::Owned(format!("SET_THREAD_VIDEO {enabled}")),
-            RetroArchCommand::SetDebugHUD(enabled) => Cow::Owned(format!("SET_DEBUG_HUD {enabled}")),
+            RetroArchCommand::SetThreadVideo(enabled) => {
+                Cow::Owned(format!("SET_THREAD_VIDEO {enabled}"))
+            }
+            RetroArchCommand::SetDebugHUD(enabled) => {
+                Cow::Owned(format!("SET_DEBUG_HUD {enabled}"))
+            }
             RetroArchCommand::SetMaxFF(speed) => Cow::Owned(format!("SET_MAX_FF {speed}")),
-            RetroArchCommand::SetCoreOption { key, value } => Cow::Owned(format!("SET_CORE_OPTION {key} {value}")),
+            RetroArchCommand::SetCoreOption { key, value } => {
+                Cow::Owned(format!("SET_CORE_OPTION {key} {value}"))
+            }
             RetroArchCommand::ReloadConfig => Cow::Borrowed("RELOAD_CONFIG"),
-            RetroArchCommand::SetControl { retro_button, key } => Cow::Owned(format!("SET_CONTROL {retro_button} {key}")),
-            RetroArchCommand::SetShortcut { action, combo } => Cow::Owned(format!("SET_SHORTCUT {action} {combo}")),
+            RetroArchCommand::SetControl { retro_button, key } => {
+                Cow::Owned(format!("SET_CONTROL {retro_button} {key}"))
+            }
+            RetroArchCommand::SetShortcut { action, combo } => {
+                Cow::Owned(format!("SET_SHORTCUT {action} {combo}"))
+            }
         }
     }
 }
@@ -239,21 +249,40 @@ impl std::str::FromStr for RetroArchCommand {
                     .ok_or("Invalid slot")?;
                 Ok(RetroArchCommand::LoadStateSlot(slot))
             }
-            "SET_SCALE" => Ok(RetroArchCommand::SetScale(parts.get(1).unwrap_or(&"aspect").to_string())),
-            "SET_EFFECT" => Ok(RetroArchCommand::SetEffect(parts.get(1).unwrap_or(&"none").to_string())),
-            "SET_SHARPNESS" => Ok(RetroArchCommand::SetSharpness(parts.get(1).unwrap_or(&"soft").to_string())),
-            "SET_TEARING" => Ok(RetroArchCommand::SetTearing(parts.get(1).unwrap_or(&"lenient").to_string())),
-            "SET_OVERCLOCK" => Ok(RetroArchCommand::SetOverclock(parts.get(1).unwrap_or(&"normal").to_string())),
+            "SET_SCALE" => Ok(RetroArchCommand::SetScale(
+                parts.get(1).unwrap_or(&"aspect").to_string(),
+            )),
+            "SET_EFFECT" => Ok(RetroArchCommand::SetEffect(
+                parts.get(1).unwrap_or(&"none").to_string(),
+            )),
+            "SET_SHARPNESS" => Ok(RetroArchCommand::SetSharpness(
+                parts.get(1).unwrap_or(&"soft").to_string(),
+            )),
+            "SET_TEARING" => Ok(RetroArchCommand::SetTearing(
+                parts.get(1).unwrap_or(&"lenient").to_string(),
+            )),
+            "SET_OVERCLOCK" => Ok(RetroArchCommand::SetOverclock(
+                parts.get(1).unwrap_or(&"normal").to_string(),
+            )),
             "SET_THREAD_VIDEO" => {
-                let enabled = parts.get(1).map(|s| *s == "true" || *s == "1").unwrap_or(true);
+                let enabled = parts
+                    .get(1)
+                    .map(|s| *s == "true" || *s == "1")
+                    .unwrap_or(true);
                 Ok(RetroArchCommand::SetThreadVideo(enabled))
             }
             "SET_DEBUG_HUD" => {
-                let enabled = parts.get(1).map(|s| *s == "true" || *s == "1").unwrap_or(true);
+                let enabled = parts
+                    .get(1)
+                    .map(|s| *s == "true" || *s == "1")
+                    .unwrap_or(true);
                 Ok(RetroArchCommand::SetDebugHUD(enabled))
             }
             "SET_MAX_FF" => {
-                let speed = parts.get(1).and_then(|s| s.parse().ok()).ok_or("Invalid speed")?;
+                let speed = parts
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .ok_or("Invalid speed")?;
                 Ok(RetroArchCommand::SetMaxFF(speed))
             }
             "SET_CORE_OPTION" => {

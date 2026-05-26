@@ -4,8 +4,8 @@ pub mod effects;
 pub mod pixel;
 pub mod scale;
 
-use std::time::Duration;
 use anyhow::{Result, anyhow};
+use std::time::Duration;
 
 pub use effects::{apply_rgb565_effect, weight3_1_rgb565};
 pub use pixel::rgb565_to_bgra8888;
@@ -53,9 +53,7 @@ impl FrameData {
             // SAFETY: the pointer is only set during the libretro video_refresh callback
             // and is consumed immediately in the same frame loop iteration before the
             // next retro_run() call.
-            FrameData::Borrowed { ptr, len } => unsafe {
-                std::slice::from_raw_parts(*ptr, *len)
-            },
+            FrameData::Borrowed { ptr, len } => unsafe { std::slice::from_raw_parts(*ptr, *len) },
         }
     }
 
@@ -111,7 +109,12 @@ pub struct CapturedFrame {
 
 impl CapturedFrame {
     pub fn new(data: impl Into<FrameData>, width: u32, height: u32, pitch: usize) -> Self {
-        Self { data: data.into(), width, height, pitch }
+        Self {
+            data: data.into(),
+            width,
+            height,
+            pitch,
+        }
     }
 
     pub fn new_empty() -> Self {
