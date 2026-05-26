@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+#
+# Unblank fb0 once the writable rootfs and local console are ready.
+# This keeps the simple tty1 console path visible without reviving the
+# SDL status UI or a separate backlight workaround.
+#
+
+description="Unblank fb0 for the local tty1 console"
+
+depend() {
+  need localmount
+  after localmount
+}
+
+start() {
+  if [ ! -w /sys/class/graphics/fb0/blank ]; then
+    return 0
+  fi
+
+  printf '%s\n' 0 > /sys/class/graphics/fb0/blank 2>/dev/null || return 1
+}

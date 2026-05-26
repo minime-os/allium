@@ -326,9 +326,9 @@ where
                 }
             }
             MenuEntry::Settings => {
-                // Detect Play by checking for its state file.
-                let play_state = common::constants::ALLIUM_BASE_DIR.join("state").join("play.json");
-                if play_state.exists() {
+                // Detect Play by checking if a play process is currently running.
+                let is_play_running = is_play_process_running();
+                if is_play_running {
                     self.play_menu = Some(crate::view::PlayMenu::new(self.rect, self.res.clone()));
                 } else {
                     RetroArchCommand::Unpause.send().await?;
@@ -685,6 +685,24 @@ where
         self.rect.x = point.x;
         self.rect.y = point.y;
     }
+}
+
+/// Check if a Play process is currently running by scanning /proc/*/cmdline.
+fn is_play_process_running() -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else { return false; };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue; };
+        if !meta.is_dir() { continue; }
+        let Some(name) = entry.file_name().into_string().ok() else { continue; };
+        if !name.chars().all(|c| c.is_ascii_digit()) { continue; }
+        let cmdline = entry.path().join("cmdline");
+        if let Ok(content) = std::fs::read_to_string(&cmdline) {
+            if content.contains(".allium/bin/play") {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

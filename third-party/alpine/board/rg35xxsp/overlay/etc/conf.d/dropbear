@@ -1,0 +1,2 @@
+# Key-only root login by default.
+DROPBEAR_OPTS="-R -s"

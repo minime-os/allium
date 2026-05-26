@@ -1,0 +1,67 @@
+pkgname=linux-rg35xxsp
+pkgver=6.18.13
+pkgrel=13
+pkgdesc="RG35xxSP kernel derived from Alpine linux-lts"
+arch="aarch64"
+url="https://www.kernel.org"
+license="GPL-2.0-only"
+makedepends="bash bc bison dtc elfutils-dev flex linux-headers openssl-dev pahole perl python3"
+source="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$pkgver.tar.xz"
+builddir="$srcdir/linux-$pkgver"
+options="!check"
+_board_root="$startdir/../../board/rg35xxsp"
+_artifact_dir="$srcdir/artifacts"
+_dtb_name="sun50i-h700-anbernic-rg35xx-sp.dtb"
+_kernel_release_file="$srcdir/kernel.release"
+_metadata_dir="/usr/lib/sp/artifacts/linux"
+
+prepare() {
+  default_prepare
+  for patch_file in "$_board_root"/patches/linux/*.patch; do
+    [ -f "$patch_file" ] || continue
+    patch -d "$builddir" -p1 < "$patch_file"
+  done
+  cp "$_board_root/linux.config" "$builddir/.config"
+  sed -i \
+    "s|^CONFIG_EXTRA_FIRMWARE_DIR=.*|CONFIG_EXTRA_FIRMWARE_DIR=\"$_board_root/firmware\"|" \
+    "$builddir/.config"
+}
+
+build() {
+  mkdir -p "$_artifact_dir"
+  make -C "$builddir" ARCH=arm64 olddefconfig
+  make -C "$builddir" ARCH=arm64 Image dtbs
+  make -C "$builddir" ARCH=arm64 -s kernelrelease > "$_kernel_release_file"
+}
+
+package() {
+  kernel_release="$(cat "$_kernel_release_file")"
+  mkdir -p "$pkgdir$_metadata_dir"
+  install -D -m 0644 \
+    "$builddir/arch/arm64/boot/Image" \
+    "$pkgdir$_metadata_dir/Image"
+  install -D -m 0644 \
+    "$builddir/arch/arm64/boot/dts/allwinner/$_dtb_name" \
+    "$pkgdir$_metadata_dir/$_dtb_name"
+  install -D -m 0644 \
+    "$builddir/.config" \
+    "$pkgdir$_metadata_dir/config"
+  printf '%s\n' "$kernel_release" > "$pkgdir$_metadata_dir/kernel.release"
+}
+
+clean() {
+  cleanup_ds_store() {
+    find "$startdir" -name '.DS_Store' -delete 2>/dev/null || true
+  }
+
+  cleanup_ds_store
+  chmod -R u+w "$builddir" "$pkgdir" "$srcdir" 2>/dev/null || true
+  rm -rf "$builddir" "$pkgdir" "$srcdir" 2>/dev/null || {
+    cleanup_ds_store
+    rm -rf "$builddir" "$pkgdir" "$srcdir" 2>/dev/null || true
+  }
+}
+
+sha512sums="
+361052a6d964dbe33b958d35c63a6695a0b2f9d06c21c924141f67060f2f44fd995a977129dc053ab74b3132fa3921a7e7ad8fa5d69113442b5ab9ba431a2967  linux-6.18.13.tar.xz
+"

@@ -1,5 +1,6 @@
 /target
 /dist
+/dist-rg35xxsp
 /simulator/*
 !/simulator/bg-*.png
 !.gitkeep

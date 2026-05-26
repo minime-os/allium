@@ -1,0 +1,272 @@
+#!/sbin/openrc-run
+#
+# Connect the seeded Wi-Fi profile and provide OpenRC's virtual net service.
+# Stock iwd owns the daemon; this helper only performs board-specific
+# provisioning, association, and DHCP bring-up.
+#
+
+description="Bring up Wi-Fi and provide net"
+
+wifi_interface="wlan0"
+wifi_driver_module="rtw88_8821cs"
+target_ssid_file="/mnt/sdcard/wifi/target-ssid"
+iwd_state_dir="/var/lib/iwd"
+iwctl_tmp="/tmp/wifi-net-sp.iwctl"
+wifi_driver_wait_seconds=3
+iwctl_wait_seconds=20
+station_connect_wait_seconds=12
+ipv4_wait_seconds=8
+udhcpc_pidfile="/run/udhcpc.${wifi_interface}.pid"
+udhcpc_logfile="/run/udhcpc.${wifi_interface}.log"
+diagnostic_logfile="/tmp/wifi-net-sp.diagnostics"
+
+depend() {
+  need localmount dbus iwd
+  after localmount iwd
+  before dropbear
+  provide net
+}
+
+prepare_wifi_interface() {
+  i=0
+
+  if command -v rfkill >/dev/null 2>&1; then
+    rfkill unblock wifi >/dev/null 2>&1 || true
+  fi
+
+  if ! ip link show "${wifi_interface}" >/dev/null 2>&1 &&
+    command -v modprobe >/dev/null 2>&1; then
+    modprobe "${wifi_driver_module}" >/dev/null 2>&1 || true
+  fi
+
+  while [ "${i}" -lt "${wifi_driver_wait_seconds}" ]; do
+    if ip link show "${wifi_interface}" >/dev/null 2>&1; then
+      ip link set "${wifi_interface}" up >/dev/null 2>&1 || true
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+
+  return 1
+}
+
+run_iwctl_timeout() {
+  timeout_s="$1"
+  output_path="$2"
+  shift 2
+
+  : > "${output_path}"
+  TERM=dumb iwctl "$@" >"${output_path}" 2>&1 &
+  pid=$!
+  i=0
+
+  while kill -0 "${pid}" >/dev/null 2>&1; do
+    if [ "${i}" -ge "${timeout_s}" ]; then
+      kill "${pid}" >/dev/null 2>&1 || true
+      wait "${pid}" >/dev/null 2>&1 || true
+      return 124
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+
+  wait "${pid}" >/dev/null 2>&1
+}
+
+wait_for_iwd_ready() {
+  i=0
+
+  while [ "${i}" -lt "${iwctl_wait_seconds}" ]; do
+    if pidof iwd >/dev/null 2>&1 &&
+      run_iwctl_timeout 2 "${iwctl_tmp}.show" station "${wifi_interface}" show; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+
+  return 1
+}
+
+log_failure_diagnostics() {
+  reason="$1"
+
+  {
+    printf '%s\n' "reason=${reason}"
+    printf '%s ' "/sys/class/net/${wifi_interface}:"
+    if [ -e "/sys/class/net/${wifi_interface}" ]; then
+      printf '%s\n' "present"
+      ip link show "${wifi_interface}" 2>&1 || true
+    else
+      printf '%s\n' "missing"
+    fi
+
+    printf '%s\n' "/sys/bus/sdio/devices:"
+    ls -la /sys/bus/sdio/devices 2>&1 || true
+
+    printf '%s\n' "iwctl station ${wifi_interface} show:"
+    if command -v iwctl >/dev/null 2>&1; then
+      run_iwctl_timeout 3 "${iwctl_tmp}.diagnostic" \
+        station "${wifi_interface}" show
+      printf 'iwctl_rc=%s\n' "$?"
+      cat "${iwctl_tmp}.diagnostic" 2>/dev/null || true
+    else
+      printf '%s\n' "iwctl missing"
+    fi
+  } >> "${diagnostic_logfile}"
+
+  logger -t wifi-net-sp "startup failed: ${reason}; diagnostics in ${diagnostic_logfile}" \
+    2>/dev/null || true
+}
+
+decode_hex_ssid() {
+  encoded_hex="$1"
+  escaped_hex="$(printf '%s' "${encoded_hex}" | sed 's/../\\\\x&/g')"
+  printf '%b' "${escaped_hex}"
+}
+
+ssid_from_profile_file() {
+  profile_path="$1"
+  profile_name="${profile_path##*/}"
+  profile_name="${profile_name%.psk}"
+  profile_name="${profile_name%.8021x}"
+
+  case "${profile_name}" in
+    =*)
+      decode_hex_ssid "${profile_name#=}"
+      ;;
+    *)
+      printf '%s' "${profile_name}"
+      ;;
+  esac
+}
+
+resolve_target_ssid() {
+  if [ -s "${target_ssid_file}" ]; then
+    sed -n '1p' "${target_ssid_file}"
+    return 0
+  fi
+
+  for profile_path in "${iwd_state_dir}"/*.psk "${iwd_state_dir}"/*.8021x; do
+    [ -f "${profile_path}" ] || continue
+    ssid_from_profile_file "${profile_path}"
+    return 0
+  done
+
+  return 1
+}
+
+station_has_connection() {
+  TERM=dumb iwctl station "${wifi_interface}" show 2>/dev/null | awk '
+    {
+      gsub(/\x1B\[[0-9;]*[[:alpha:]]/, "", $0)
+    }
+    /Connected network/ {
+      line = $0
+      sub(/^.*Connected network[[:space:]]*:?[[:space:]]*/, "", line)
+      sub(/^[ \t]+/, "", line)
+      sub(/[ \t]+$/, "", line)
+      if (line != "" && line != "--") {
+        found = 1
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+wait_for_station_connected() {
+  i=0
+
+  while [ "${i}" -lt "${station_connect_wait_seconds}" ]; do
+    if station_has_connection; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+
+  return 1
+}
+
+wait_for_ipv4_address() {
+  i=0
+
+  while [ "${i}" -lt "${ipv4_wait_seconds}" ]; do
+    if ip -4 addr show "${wifi_interface}" 2>/dev/null | grep -q "inet "; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+
+  return 1
+}
+
+connect_target_network() {
+  target_ssid="$1"
+
+  run_iwctl_timeout 25 "${iwctl_tmp}.connect" \
+    station "${wifi_interface}" connect "${target_ssid}"
+}
+
+start_dhcp_client() {
+  rm -f "${udhcpc_pidfile}"
+  : > "${udhcpc_logfile}"
+
+  udhcpc -b -R -O search -O staticroutes \
+    -p "${udhcpc_pidfile}" \
+    -i "${wifi_interface}" \
+    -s /usr/share/udhcpc/default.script \
+    >> "${udhcpc_logfile}" 2>&1
+}
+
+start() {
+  target_ssid=""
+
+  if ! prepare_wifi_interface; then
+    log_failure_diagnostics "missing-${wifi_interface}"
+    return 1
+  fi
+
+  if ! wait_for_iwd_ready; then
+    log_failure_diagnostics "iwd-not-ready"
+    return 1
+  fi
+
+  if station_has_connection; then
+    wait_for_ipv4_address && return 0
+    if ! start_dhcp_client; then
+      log_failure_diagnostics "dhcp-start-failed"
+      return 1
+    fi
+    if ! wait_for_ipv4_address; then
+      log_failure_diagnostics "ipv4-timeout"
+      return 1
+    fi
+    return 0
+  fi
+
+  target_ssid="$(resolve_target_ssid 2>/dev/null || true)"
+  if [ -z "${target_ssid}" ]; then
+    log_failure_diagnostics "missing-target-ssid"
+    return 1
+  fi
+
+  connect_target_network "${target_ssid}" || true
+  if ! wait_for_station_connected; then
+    log_failure_diagnostics "station-connect-timeout"
+    return 1
+  fi
+
+  wait_for_ipv4_address && return 0
+  if ! start_dhcp_client; then
+    log_failure_diagnostics "dhcp-start-failed"
+    return 1
+  fi
+  if ! wait_for_ipv4_address; then
+    log_failure_diagnostics "ipv4-timeout"
+    return 1
+  fi
+  return 0
+}

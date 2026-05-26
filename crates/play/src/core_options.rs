@@ -241,12 +241,12 @@ impl CoreOptions {
 
     /// Write the value pointer for GET_VARIABLE.
     /// Stores the string persistently so the pointer remains valid.
-    pub fn get_ptr(&mut self, key: &str) -> Option<*const i8> {
+    pub fn get_ptr(&mut self, key: &str) -> Option<*const u8> {
         self.get(key).map(|s| {
             // Leak the string to keep it valid for the core's lifetime.
             // This is fine for the small number of core options.
             let leaked = Box::leak(s.to_string().into_boxed_str());
-            leaked.as_ptr() as *const i8
+            leaked.as_ptr() as *const u8
         })
     }
 

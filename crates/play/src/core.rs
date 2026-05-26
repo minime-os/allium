@@ -829,7 +829,7 @@ impl ActiveSession {
             .to_string_lossy()
             .into_owned();
         if let Some(value_ptr) = self.core_options.get_ptr(&key) {
-            var.value = value_ptr;
+            var.value = value_ptr as _;
             debug!("GET_VARIABLE: {} = {:?}", key, unsafe { std::ffi::CStr::from_ptr(var.value) });
             return true;
         }

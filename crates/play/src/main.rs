@@ -1,5 +1,5 @@
-#[cfg(not(any(feature = "simulator", feature = "miyoo")))]
-compile_error!("pick `simulator` or `miyoo` feature");
+#[cfg(not(any(feature = "simulator", feature = "miyoo", feature = "rg35xxsp")))]
+compile_error!("pick `simulator`, `miyoo` or `rg35xxsp` feature");
 
 mod audio;
 mod commands;
@@ -57,7 +57,9 @@ impl Drop for PlayStateGuard {
 fn main() -> Result<()> {
     init_logging()?;
 
-    let state_path = common::constants::ALLIUM_BASE_DIR.join("state").join("play.json");
+    // Use hardcoded absolute path to avoid env var / LazyLock resolution issues
+    // when ALLIUM_BASE_DIR is set to an empty string.
+    let state_path = std::path::PathBuf::from("/mnt/SDCARD/.allium/state/play.json");
     std::fs::create_dir_all(state_path.parent().unwrap_or_else(|| std::path::Path::new("")))?;
     let _guard = PlayStateGuard::new(&state_path);
 

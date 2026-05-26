@@ -1,0 +1,22 @@
+pkgname=board-rg35xxsp
+pkgver=0.1.0
+pkgrel=4
+pkgdesc="RG35xxSP board assets, overlays, and OpenRC wrappers for the SP image"
+arch="aarch64"
+url="https://github.com/sp-firmware/sp"
+license="custom"
+depends="openrc"
+source=""
+options="!check"
+_repo_root="$startdir/../.."
+_board_root="$_repo_root/board/rg35xxsp"
+
+package() {
+  install -D -m 0755 "$_board_root/overlay/etc/init.d/fb-unblank-sp" "$pkgdir/etc/init.d/fb-unblank-sp"
+  install -D -m 0755 "$_board_root/overlay/etc/init.d/sd1-expand" "$pkgdir/etc/init.d/sd1-expand"
+  install -D -m 0755 "$_board_root/overlay/etc/init.d/sdcard-seed-sp" "$pkgdir/etc/init.d/sdcard-seed-sp"
+  install -D -m 0755 "$_board_root/overlay/etc/init.d/wifi-net-sp" "$pkgdir/etc/init.d/wifi-net-sp"
+  install -D -m 0644 "$_board_root/overlay/lib/firmware/rtl_bt/rtl8821cs_config.bin" "$pkgdir/lib/firmware/rtl_bt/rtl8821cs_config.bin"
+  install -d "$pkgdir/root/.ssh"
+  ln -snf /mnt/sdcard/ssh/authorized_keys "$pkgdir/root/.ssh/authorized_keys"
+}

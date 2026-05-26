@@ -1,0 +1,6 @@
+# Alpine/OpenRC boot sequence for the RG35xxSP image.
+::sysinit:/sbin/openrc sysinit --quiet
+::wait:/sbin/openrc boot --quiet
+::once:/sbin/openrc default --quiet
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown

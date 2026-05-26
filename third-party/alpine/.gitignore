@@ -1,0 +1,11 @@
+# Local build directories
+/out/
+
+# Alpine build cache inside package definitions
+/aports/*/src/
+/aports/*/pkg/
+/aports/*/dist/
+/aports/*/tmp/
+
+# OS noise
+.DS_Store

@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 simulator = ["common/simulator", "cpal", "softbuffer", "winit"]
 miyoo = ["common/miyoo", "framebuffer", "ffi"]
+rg35xxsp = ["common/rg35xxsp", "framebuffer", "evdev", "futures"]
 
 [dependencies]
 common = { path = "../common" }
@@ -28,3 +29,5 @@ softbuffer = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
 libretro = { path = "../libretro" }
 ffi = { version = "0.1.0", path = "../ffi", optional = true }
+evdev = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }

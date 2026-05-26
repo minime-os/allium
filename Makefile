@@ -1,3 +1,6 @@
+ifneq (,$(filter rg35xxsp,$(MAKECMDGOALS)))
+include rg35xxsp.mk
+else
 ROOT_DIR := $(shell pwd)
 BUILD_DIR := target/armv7-unknown-linux-gnueabihf/release
 DIST_DIR := dist
@@ -178,3 +181,4 @@ endif
 .PHONY: toolchain
 toolchain:
 	docker run --rm -it -v $(ROOT_DIR):/root/workspace $(TOOLCHAIN) bash
+endif

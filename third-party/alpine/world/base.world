@@ -1,0 +1,27 @@
+# Upstream Alpine packages needed for the minimal shell + SSH bring-up.
+alpine-base
+alsa-utils
+bluez
+bluez-openrc
+dbus
+dbus-openrc
+dropbear
+e2fsprogs
+f2fs-tools
+iwd
+iwd-openrc
+iw
+linux-firmware-rtl_bt
+linux-firmware-rtw88
+mesa-dri-gallium
+mesa-egl
+mesa-gbm
+mesa-gles
+openntpd
+openntpd-openrc
+sdl2
+sdl2_image
+sdl2_ttf
+wireless-regdb
+tzdata
+util-linux

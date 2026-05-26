@@ -1,10 +1,12 @@
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
-mod mock;
-
 #[cfg(feature = "miyoo")]
 pub mod miyoo;
 #[cfg(feature = "simulator")]
 pub mod simulator;
+#[cfg(feature = "rg35xxsp")]
+pub mod rg35xxsp;
+
+#[cfg(not(any(feature = "miyoo", feature = "simulator", feature = "rg35xxsp")))]
+mod mock;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -23,7 +25,10 @@ pub type DefaultPlatform = miyoo::MiyooPlatform;
 #[cfg(feature = "simulator")]
 pub type DefaultPlatform = simulator::SimulatorPlatform;
 
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+#[cfg(feature = "rg35xxsp")]
+pub type DefaultPlatform = rg35xxsp::Rg35xxspPlatform;
+
+#[cfg(not(any(feature = "miyoo", feature = "simulator", feature = "rg35xxsp")))]
 pub type DefaultPlatform = mock::MockPlatform;
 
 // Platform is not threadsafe because it is ?Send
