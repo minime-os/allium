@@ -15,7 +15,7 @@ use simple_logger::SimpleLogger;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(not(feature = "simulator"))]
     {
         use common::constants::ALLIUM_LOG_DIR;
         let _ = common::log::init_hardware_log(&ALLIUM_LOG_DIR.join("allium-launcher.log"));

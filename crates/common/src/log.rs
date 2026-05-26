@@ -3,7 +3,7 @@ use std::path::Path;
 
 #[allow(unused_variables)]
 pub fn init_hardware_log(log_path: &Path) -> Result<()> {
-    #[cfg(feature = "miyoo")]
+    #[cfg(not(feature = "simulator"))]
     {
         use std::fs;
         use std::os::unix::io::AsRawFd;

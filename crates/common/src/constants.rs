@@ -22,7 +22,7 @@ pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
 #[cfg(feature = "simulator")]
 pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     env::var("ALLIUM_SD_ROOT")
-        .map(|path| PathBuf::from(path))
+        .map(PathBuf::from)
         .unwrap_or_else(|_| env::current_dir().unwrap().join("simulator"))
 });
 #[cfg(not(any(feature = "miyoo", feature = "simulator")))]
@@ -83,7 +83,7 @@ lazy_static! {
     pub static ref ALLIUM_LAUNCHER: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-launcher");
     pub static ref ALLIUM_MENU: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-menu");
     pub static ref ALLIUM_PLAY: PathBuf = ALLIUM_BASE_DIR.join("bin/play");
-    pub static ref ALLIUM_RETROARCH: PathBuf = ALLIUM_SD_ROOT.join("RetroArch/retroarch");
+    pub static ref ALLIUM_RETROARCH: PathBuf = ALLIUM_BASE_DIR.join("cores/retroarch/launch.sh");
 }
 
 // Styles
