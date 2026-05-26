@@ -48,10 +48,10 @@ impl PlayStateGuard {
 
 impl Drop for PlayStateGuard {
     fn drop(&mut self) {
-        if let Err(e) = std::fs::remove_file(&self.path) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                log::warn!("Failed to remove play state file: {}", e);
-            }
+        if let Err(e) = std::fs::remove_file(&self.path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("Failed to remove play state file: {}", e);
         }
     }
 }
@@ -194,6 +194,15 @@ async fn run_emulation_loop(
         if let Some(reason) = run_loop_step(session, rx, drv, frames, next_at, interval)? {
             return Ok(reason);
         }
+        // Yield to the tokio executor when the emulator is paused by waiting
+        // indefinitely (up to 1 hour) for a control event or signal.
+        if session.paused {
+            let sleep = tokio::time::Instant::now() + std::time::Duration::from_secs(3600);
+            if let Some(r) = wait_frame(session, sleep, ctrl_c, rx, drv).await? {
+                return Ok(r);
+            }
+            continue;
+        }
         // Fast-forward only bypasses wait when cap > 1x.
         let ff_enabled = session.fast_forwarding && session.frontend_settings.max_ff_speed > 1;
         if ff_enabled {
@@ -311,10 +320,10 @@ fn poll_and_apply_platform_inputs(session: &mut ActiveSession, drv: &mut Default
                 None
             }
         };
-        if let Some(ev) = event {
-            if let Err(err) = session.apply_control_event(ev, drv) {
-                warn!("Shortcut event failed: {}", err);
-            }
+        if let Some(ev) = event
+            && let Err(err) = session.apply_control_event(ev, drv)
+        {
+            warn!("Shortcut event failed: {}", err);
         }
     }
 

@@ -28,12 +28,10 @@ pub struct CoreInfo {
     pub library_version: String,
     pub valid_extensions: String,
     pub need_fullpath: bool,
-    #[allow(dead_code)]
     pub block_extract: bool,
 }
 
 // Core is the loaded libretro library. It keeps the library alive and exposes Rust methods.
-#[allow(dead_code)]
 pub struct Core {
     lib: Library,
     symbols: CoreSymbols,
@@ -415,10 +413,10 @@ impl ActiveSession {
         session.core.load_game(&game_info)?;
 
         save::load_sram(&session.core, &session.ctx.paths)?;
-        if session.ctx.config.autoload {
-            if let Err(err) = save::load_state_slot(&session.core, &session.ctx.paths, -1) {
-                debug!("Autosave autoload skipped: {}", err);
-            }
+        if session.ctx.config.autoload
+            && let Err(err) = save::load_state_slot(&session.core, &session.ctx.paths, -1)
+        {
+            debug!("Autosave autoload skipped: {}", err);
         }
 
         let av_info = session.core.get_system_av_info();
@@ -469,13 +467,13 @@ impl ActiveSession {
                 height,
                 pitch,
             );
-            return Ok(drv.video.present(&view, self.pixel_format)?);
+            return drv.video.present(&view, self.pixel_format);
         }
 
         if self.captured_frame.width == 0 {
             return Ok(false);
         }
-        Ok(drv.video.present(&self.captured_frame, self.pixel_format)?)
+        drv.video.present(&self.captured_frame, self.pixel_format)
     }
 
     pub fn apply_scale(&self, drv: &mut crate::platform::DefaultPlatform) -> Result<()> {
@@ -493,6 +491,9 @@ impl ActiveSession {
         &mut self,
         drv: &mut crate::platform::DefaultPlatform,
     ) -> Result<()> {
+        if self.paused {
+            return Ok(());
+        }
         self.scale_mode = self.frontend_settings.scale_mode;
         self.apply_scale(drv)?;
         drv.video.set_effect(self.frontend_settings.effect);
@@ -548,7 +549,12 @@ impl ActiveSession {
             ControlEvent::StateSlotMinus => {
                 self.select_state_slot((self.state_slot - 1).max(-1))?
             }
-            ControlEvent::SetPaused(paused) => self.paused = paused,
+            ControlEvent::SetPaused(paused) => {
+                self.paused = paused;
+                if !paused {
+                    self.apply_frontend_settings(drv)?;
+                }
+            }
             ControlEvent::TogglePaused => self.paused = !self.paused,
             ControlEvent::ToggleFastForward => {
                 self.fast_forwarding = !self.fast_forwarding;
@@ -622,7 +628,7 @@ impl ActiveSession {
                 self.apply_frontend_settings(drv)?;
             }
             ControlEvent::SetMaxFF(speed) => {
-                self.frontend_settings.max_ff_speed = speed.min(8).max(1);
+                self.frontend_settings.max_ff_speed = speed.clamp(1, 8);
                 info!("SET_MAX_FF: {}", self.frontend_settings.max_ff_speed);
                 self.apply_frontend_settings(drv)?;
             }
@@ -658,6 +664,28 @@ impl ActiveSession {
                 self.frontend_settings = settings::load_frontend_settings(&self.ctx.paths);
                 self.apply_frontend_settings(drv)?;
             }
+            ControlEvent::SaveConfigConsole => {
+                info!("SAVE_CONFIG_CONSOLE");
+                settings::save_frontend_settings(
+                    &self.ctx.paths,
+                    settings::SaveScope::System,
+                    &self.frontend_settings,
+                )?;
+            }
+            ControlEvent::SaveConfigGame => {
+                info!("SAVE_CONFIG_GAME");
+                settings::save_frontend_settings(
+                    &self.ctx.paths,
+                    settings::SaveScope::Game,
+                    &self.frontend_settings,
+                )?;
+            }
+            ControlEvent::RestoreDefaults => {
+                info!("RESTORE_DEFAULTS");
+                settings::restore_frontend_defaults(&self.ctx.paths)?;
+                self.frontend_settings = settings::load_frontend_settings(&self.ctx.paths);
+                self.apply_frontend_settings(drv)?;
+            }
         }
         Ok(())
     }
@@ -679,10 +707,10 @@ impl ActiveSession {
 
 impl Drop for ActiveSession {
     fn drop(&mut self) {
-        if self.ctx.config.autosave {
-            if let Err(err) = save::save_state_slot(&self.core, &self.ctx.paths, -1) {
-                warn!("Failed to autosave state: {}", err);
-            }
+        if self.ctx.config.autosave
+            && let Err(err) = save::save_state_slot(&self.core, &self.ctx.paths, -1)
+        {
+            warn!("Failed to autosave state: {}", err);
         }
         if let Err(err) = save::save_sram(&self.core, &self.ctx.paths) {
             warn!("Failed to save SRAM: {}", err);
@@ -764,10 +792,10 @@ impl ActiveSession {
             return 0;
         }
         let key = self.control_bindings.key_for_retro_id(id);
-        if let Some(key) = key {
-            if self.joypad_state.is_pressed(key) {
-                return 1;
-            }
+        if let Some(key) = key
+            && self.joypad_state.is_pressed(key)
+        {
+            return 1;
         }
         0
     }
@@ -859,25 +887,6 @@ impl ActiveSession {
         true
     }
 
-    fn set_core_options_intl(&mut self, data: *mut c_void) -> bool {
-        if data.is_null() {
-            warn!("Core requested SET_CORE_OPTIONS_INTL with null data");
-            return false;
-        }
-        let intl = unsafe { &*(data as *const libretro::retro_core_options_intl) };
-        let ptr = if !intl.us.is_null() {
-            intl.us as *const libretro::retro_core_option_definition
-        } else if !intl.local.is_null() {
-            intl.local as *const libretro::retro_core_option_definition
-        } else {
-            warn!("Core provided empty SET_CORE_OPTIONS_INTL");
-            return false;
-        };
-        self.core_options = unsafe { CoreOptions::from_core_options(ptr) };
-        self.load_persisted_core_options();
-        true
-    }
-
     fn get_variable(&mut self, data: *mut c_void) -> bool {
         if data.is_null() {
             warn!("Core requested GET_VARIABLE with null data");
@@ -913,11 +922,11 @@ impl ActiveSession {
 
     fn load_persisted_core_options(&mut self) {
         let path = self.ctx.paths.config_dir.join("core_options.toml");
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(config) = toml::from_str::<CoreOptionsConfig>(&content) {
-                self.core_options.merge_values(&config.options);
-                info!("Loaded persisted core options from {:?}", path);
-            }
+        if let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(config) = toml::from_str::<CoreOptionsConfig>(&content)
+        {
+            self.core_options.merge_values(&config.options);
+            info!("Loaded persisted core options from {:?}", path);
         }
     }
 

@@ -11,15 +11,14 @@ use std::fs;
 use std::os::raw::c_void;
 use std::ptr;
 
-pub fn resolve_and_prepare_rom(
-    paths: &PlayPaths,
-    sys_info: &CoreInfo,
-) -> Result<(
+pub type PreparedRom = (
     retro_game_info,
     Option<unzip::ResolvedRom>,
     Option<Vec<u8>>,
     Option<CString>,
-)> {
+);
+
+pub fn resolve_and_prepare_rom(paths: &PlayPaths, sys_info: &CoreInfo) -> Result<PreparedRom> {
     let resolved = unzip::resolve_rom_path(
         &paths.rom,
         &sys_info.valid_extensions,

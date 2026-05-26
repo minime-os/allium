@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use log::{debug, info, warn};
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
 /// Internal representation of one core option.
@@ -250,7 +250,7 @@ impl CoreOptions {
             // Leak the string to keep it valid for the core's lifetime.
             // This is fine for the small number of core options.
             let leaked = Box::leak(s.to_string().into_boxed_str());
-            leaked.as_ptr() as *const u8
+            leaked.as_ptr()
         })
     }
 

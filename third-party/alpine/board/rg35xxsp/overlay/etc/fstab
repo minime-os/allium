@@ -1,3 +1,2 @@
-/dev/mmcblk0p1  /boot         erofs  ro,relatime         0  0
-/dev/mmcblk0p2  /             ext4   rw,relatime         0  1
-/dev/mmcblk0p3  /mnt/sdcard   f2fs   rw,noatime,nodiscard 0  2
+/dev/mmcblk0p2  /           erofs  ro,relatime,noauto  0  0
+LABEL=ALLIUM    /mnt/SDCARD vfat   rw,noatime,noauto   0  0

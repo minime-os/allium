@@ -9,7 +9,9 @@ use async_trait::async_trait;
 use base32::encode;
 use common::battery::Battery;
 use common::command::Command;
-use common::constants::{ALLIUM_MENU_STATE, ALLIUM_SCREENSHOTS_DIR, SAVE_STATE_IMAGE_WIDTH};
+use common::constants::{
+    ALLIUM_MENU_STATE, ALLIUM_PLAY_STATE, ALLIUM_SCREENSHOTS_DIR, SAVE_STATE_IMAGE_WIDTH,
+};
 use common::display::Display;
 use common::game_info::GameInfo;
 use common::geom::{Alignment, Point, Rect};
@@ -490,6 +492,7 @@ where
         bubble: &mut VecDeque<Command>,
     ) -> Result<bool> {
         if event == KeyEvent::Pressed(Key::Menu) {
+            RetroArchCommand::Unpause.send().await?;
             commands.send(Command::Exit).await?;
             return Ok(true);
         }
@@ -688,7 +691,12 @@ where
 }
 
 /// Check if a Play process is currently running by scanning /proc/*/cmdline.
+/// Reading raw bytes instead of UTF-8 avoids false negatives when argv
+/// contains non-UTF-8 bytes (e.g. certain ROM filenames).
 fn is_play_process_running() -> bool {
+    if ALLIUM_PLAY_STATE.exists() {
+        return true;
+    }
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return false;
     };
@@ -706,10 +714,11 @@ fn is_play_process_running() -> bool {
             continue;
         }
         let cmdline = entry.path().join("cmdline");
-        let Ok(content) = std::fs::read_to_string(&cmdline) else {
+        let Ok(content) = std::fs::read(&cmdline) else {
             continue;
         };
-        if content.contains(".allium/bin/play") {
+        let needle = b".allium/bin/play";
+        if content.windows(needle.len()).any(|w| w == needle) {
             return true;
         }
     }

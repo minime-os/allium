@@ -186,6 +186,7 @@ button-launch = Launch
 button-sort = Sort
 button-edit-search = Edit Search
 button-restore-defaults = Restore Defaults
+button-left-right = Adjust
 
 keyboard-button-backspace = Backspace
 keyboard-button-shift = Shift

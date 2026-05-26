@@ -1,4 +1,5 @@
 // Headless mock platform bootstrapper coordinating video/audio/input components in headless test runs.
+#![allow(dead_code)]
 
 pub mod audio;
 pub mod stats;

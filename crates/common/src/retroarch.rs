@@ -60,6 +60,9 @@ pub enum RetroArchCommand {
     SetMaxFF(u8),
     SetCoreOption { key: String, value: String },
     ReloadConfig,
+    SaveConfigConsole,
+    SaveConfigGame,
+    RestoreDefaults,
     SetControl { retro_button: String, key: String },
     SetShortcut { action: String, combo: String },
 }
@@ -165,6 +168,9 @@ impl RetroArchCommand {
                 Cow::Owned(format!("SET_CORE_OPTION {key} {value}"))
             }
             RetroArchCommand::ReloadConfig => Cow::Borrowed("RELOAD_CONFIG"),
+            RetroArchCommand::SaveConfigConsole => Cow::Borrowed("SAVE_CONFIG_CONSOLE"),
+            RetroArchCommand::SaveConfigGame => Cow::Borrowed("SAVE_CONFIG_GAME"),
+            RetroArchCommand::RestoreDefaults => Cow::Borrowed("RESTORE_DEFAULTS"),
             RetroArchCommand::SetControl { retro_button, key } => {
                 Cow::Owned(format!("SET_CONTROL {retro_button} {key}"))
             }
@@ -291,6 +297,9 @@ impl std::str::FromStr for RetroArchCommand {
                 Ok(RetroArchCommand::SetCoreOption { key, value })
             }
             "RELOAD_CONFIG" => Ok(RetroArchCommand::ReloadConfig),
+            "SAVE_CONFIG_CONSOLE" => Ok(RetroArchCommand::SaveConfigConsole),
+            "SAVE_CONFIG_GAME" => Ok(RetroArchCommand::SaveConfigGame),
+            "RESTORE_DEFAULTS" => Ok(RetroArchCommand::RestoreDefaults),
             "SET_CONTROL" => {
                 let retro_button = parts.get(1).ok_or("Missing retro button")?.to_string();
                 let key = parts.get(2).ok_or("Missing key")?.to_string();

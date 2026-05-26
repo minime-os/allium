@@ -6,17 +6,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ScaleMode {
     Native,
+    #[default]
     Aspect,
     Cropped,
     Fullscreen,
-}
-
-impl Default for ScaleMode {
-    fn default() -> Self {
-        Self::Aspect
-    }
 }
 
 impl std::str::FromStr for ScaleMode {
@@ -160,20 +156,20 @@ fn scale_cropped(
 ) -> ScaleRect {
     let aspect = get_aspect_ratio(source_width, source_height, aspect_ratio);
     let output_ratio = output_width as f64 / output_height as f64;
-    let (mut width, mut height) = if aspect > output_ratio {
+    let (width, height) = if aspect > output_ratio {
         // Source is wider than output: scale to fill height, crop sides.
         (output_height as f64 * aspect, output_height as f64)
     } else {
         // Source is narrower than output: scale to fill width, crop top/bottom.
         (output_width as f64, output_width as f64 / aspect)
     };
-    width = width.ceil();
-    height = height.ceil();
+    let width = width.min(output_width as f64);
+    let height = height.min(output_height as f64);
     ScaleRect {
-        x: (output_width as i64 - width as i64).max(0) as u32 / 2,
-        y: (output_height as i64 - height as i64).max(0) as u32 / 2,
-        width: width.min(u32::MAX as f64) as u32,
-        height: height.min(u32::MAX as f64) as u32,
+        x: (output_width as f64 - width).max(0.0) as u32 / 2,
+        y: (output_height as f64 - height).max(0.0) as u32 / 2,
+        width: width as u32,
+        height: height as u32,
     }
 }
 

@@ -3,7 +3,7 @@
 
 /// 65536-entry LUT that maps every possible RGB565 pixel value to BGRA8888.
 /// The conversion uses fast shifts (not slow division) to extend 5/6 bits to 8 bits.
-pub const RGB565_TO_BGRA8888: [u32; 65536] = {
+pub static RGB565_TO_BGRA8888: [u32; 65536] = {
     let mut lut = [0u32; 65536];
     let mut i = 0u32;
     while i < 65536 {

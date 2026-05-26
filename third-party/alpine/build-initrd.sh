@@ -2,10 +2,10 @@
 #
 # build-initrd.sh
 #
-# Builds the tiny, high-performance boot helper ramdisk (uInitrd) for the
-# RG35xxSP. Packs a statically linked BusyBox and a POSIX `/init` script that
-# dynamically loop-mounts our LZ4-compressed `system.erofs` firmware image
-# from the FAT32 partition, and moves the writeable partition to `/mnt/SDCARD`.
+# Builds the tiny boot helper ramdisk (uInitrd) for the RG35xxSP.
+# Packs a statically linked BusyBox and a POSIX /init script that mounts
+# partition 2 (EROFS) as the root filesystem and partition 3 (FAT32) as
+# /mnt/SDCARD before pivoting into the real system.
 
 set -eu
 
@@ -22,8 +22,8 @@ mkdir -p "$WORK_DIR/bin"
 mkdir -p "$WORK_DIR/dev"
 mkdir -p "$WORK_DIR/proc"
 mkdir -p "$WORK_DIR/sys"
-mkdir -p "$WORK_DIR/mnt/FAT32"
 mkdir -p "$WORK_DIR/sysroot"
+mkdir -p "$WORK_DIR/sysroot/mnt/SDCARD"
 
 # 3. Copy static busybox and establish symlinks
 cp /bin/busybox.static "$WORK_DIR/bin/busybox"
@@ -42,35 +42,32 @@ mount -t devtmpfs devtmpfs /dev
 
 echo "=== Allium SP Boot Helper Active ==="
 
-# Mount the FAT32 SD card partition (check SD1 and SD2 slots)
-SD_PART=""
-for dev in /dev/mmcblk0p1 /dev/mmcblk1p1; do
-    if mount -t vfat -o ro "$dev" /mnt/FAT32 2>/dev/null; then
-        SD_PART="$dev"
+# Mount the EROFS root partition (check SD1 and SD2 slots, partition 2)
+ROOT_PART=""
+for dev in /dev/mmcblk0p2 /dev/mmcblk1p2; do
+    if mount -o ro "$dev" /sysroot 2>/dev/null; then
+        ROOT_PART="$dev"
         break
     fi
 done
 
-if [ -z "$SD_PART" ]; then
-    echo "ERROR: Could not find FAT32 SD card partition!"
+if [ -z "$ROOT_PART" ]; then
+    echo "ERROR: Could not find EROFS root partition (mmcblkXp2)!"
     exec /bin/sh
 fi
 
-# Remount FAT32 as writeable now that we found it
-mount -o remount,rw "$SD_PART" /mnt/FAT32
+echo "Mounted root from $ROOT_PART"
 
-# Loop-mount the LZ4-compressed system EROFS loop image
-echo "Mounting system.erofs loop image..."
-if ! mount -o loop,ro /mnt/FAT32/system.erofs /sysroot; then
-    echo "ERROR: Failed to loop-mount /mnt/FAT32/system.erofs!"
-    exec /bin/sh
-fi
+# Mount the ALLIUM FAT32 data partition (partition 3)
+for dev in /dev/mmcblk0p3 /dev/mmcblk1p3; do
+    if mount -o rw,flush "$dev" /sysroot/mnt/SDCARD 2>/dev/null; then
+        echo "Mounted ALLIUM partition $dev at /mnt/SDCARD"
+        break
+    fi
+done
 
-# Move the FAT32 partition to be the active /mnt/SDCARD inside our new rootfs
-mkdir -p /sysroot/mnt/SDCARD
-if ! mount --move /mnt/FAT32 /sysroot/mnt/SDCARD; then
-    echo "ERROR: Failed to shift FAT32 partition to /mnt/SDCARD!"
-    exec /bin/sh
+if [ -z "$(mount | grep '/sysroot/mnt/SDCARD')" ]; then
+    echo "WARNING: Could not mount ALLIUM partition (games will not persist)"
 fi
 
 # Clean up devtmpfs, sysfs, and proc so they don't block switch_root

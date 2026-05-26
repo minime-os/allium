@@ -1,5 +1,6 @@
 // Headless mock video backend.
 // It stores the last captured frame to support headless automated testing and PPM screenshots on demand.
+#![allow(dead_code)]
 
 use crate::dump::dump_frame;
 use crate::video::ScaleMode;

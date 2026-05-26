@@ -13,35 +13,25 @@ use common::view::{ButtonHint, ButtonHints, Label, SettingsList, View};
 use tokio::sync::mpsc::Sender;
 
 /// Play settings overlay rendered inside the Allium in-game menu.
-/// Currently shows the Frontend settings tab only (Controls, Shortcuts, and
-/// Core tabs are deferred to follow-up iterations).
-///
-/// Controls:
-///   Up/Down     – navigate settings
-///   Left/Right  – cycle the selected setting’s value
-///   A           – activate save/restore actions
-///   B           – close PlayMenu and return to IngameMenu
+/// Structured like MinArch with a category selection list.
 pub struct PlayMenu {
     rect: Rect,
-    game_name: Label<String>,
-    settings_list: SettingsList,
+    category_list: SettingsList,
     button_hints: ButtonHints<String>,
-    values: Vec<String>,
+    child: Option<PlayMenuSub>,
+    res: Resources,
+}
+
+enum PlayMenuSub {
+    Frontend(FrontendMenu),
+    Placeholder(PlaceholderMenu),
+    SaveChanges(SaveChangesMenu),
 }
 
 impl PlayMenu {
     pub fn new(rect: Rect, res: Resources) -> Self {
-        let game_info = res.get::<common::game_info::GameInfo>();
         let locale = res.get::<Locale>();
         let styles = res.get::<Stylesheet>();
-
-        let name = Label::new(
-            Point::new(rect.x + styles.ui.margin_x, rect.y + styles.ui.margin_y),
-            game_info.name.clone(),
-            Alignment::Left,
-            None,
-        );
-        drop(game_info);
 
         let mut button_hints = ButtonHints::new(
             res.clone(),
@@ -49,7 +39,273 @@ impl PlayMenu {
                 res.clone(),
                 Point::zero(),
                 Key::B,
-                locale.t("ingame-menu-continue"),
+                locale.t("button-back"),
+                Alignment::Left,
+            )],
+            vec![ButtonHint::new(
+                res.clone(),
+                Point::zero(),
+                Key::A,
+                locale.t("button-select"),
+                Alignment::Right,
+            )],
+        );
+
+        let button_hints_rect = button_hints.bounding_box(&styles);
+        let content_top =
+            rect.y + styles.ui.margin_y + styles.ui.ui_font.size as i32 + styles.ui.margin_y / 2;
+        let content_height = (button_hints_rect.y - content_top) as u32;
+
+        let entry_labels = vec![
+            "Frontend".to_string(),
+            "Controls".to_string(),
+            "Shortcuts".to_string(),
+            "Core Options".to_string(),
+            "Save Changes".to_string(),
+        ];
+
+        let right_views: Vec<Box<dyn View>> = entry_labels
+            .iter()
+            .map(|_| {
+                Box::new(Label::new(
+                    Point::zero(),
+                    "".to_string(),
+                    Alignment::Right,
+                    None,
+                )) as Box<dyn View>
+            })
+            .collect();
+
+        let category_list = SettingsList::new(
+            res.clone(),
+            Rect::new(
+                rect.x + styles.ui.margin_x,
+                content_top,
+                rect.w - styles.ui.margin_x as u32 * 2,
+                content_height,
+            ),
+            entry_labels,
+            right_views,
+            styles.ui.ui_font.size + styles.ui.padding_y as u32,
+        );
+
+        drop(locale);
+        drop(styles);
+
+        Self {
+            rect,
+            category_list,
+            button_hints,
+            child: None,
+            res,
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl View for PlayMenu {
+    fn draw(
+        &mut self,
+        display: &mut <DefaultPlatform as Platform>::Display,
+        styles: &Stylesheet,
+    ) -> Result<bool> {
+        if let Some(child) = &mut self.child {
+            match child {
+                PlayMenuSub::Frontend(m) => return m.draw(display, styles),
+                PlayMenuSub::Placeholder(m) => return m.draw(display, styles),
+                PlayMenuSub::SaveChanges(m) => return m.draw(display, styles),
+            }
+        }
+
+        let mut drawn = false;
+        drawn |= self.category_list.draw(display, styles)?;
+        if self.button_hints.should_draw() {
+            display.load(self.button_hints.bounding_box(styles))?;
+            drawn |= self.button_hints.draw(display, styles)?;
+        }
+        Ok(drawn)
+    }
+
+    fn should_draw(&self) -> bool {
+        if let Some(child) = &self.child {
+            match child {
+                PlayMenuSub::Frontend(m) => return m.should_draw(),
+                PlayMenuSub::Placeholder(m) => return m.should_draw(),
+                PlayMenuSub::SaveChanges(m) => return m.should_draw(),
+            }
+        }
+        self.category_list.should_draw() || self.button_hints.should_draw()
+    }
+
+    fn set_should_draw(&mut self) {
+        if let Some(child) = &mut self.child {
+            match child {
+                PlayMenuSub::Frontend(m) => m.set_should_draw(),
+                PlayMenuSub::Placeholder(m) => m.set_should_draw(),
+                PlayMenuSub::SaveChanges(m) => m.set_should_draw(),
+            }
+            return;
+        }
+        self.category_list.set_should_draw();
+        self.button_hints.set_should_draw();
+    }
+
+    async fn handle_key_event(
+        &mut self,
+        event: KeyEvent,
+        commands: Sender<common::command::Command>,
+        bubble: &mut VecDeque<common::command::Command>,
+    ) -> Result<bool> {
+        if let Some(child) = &mut self.child {
+            let handled = match child {
+                PlayMenuSub::Frontend(m) => {
+                    m.handle_key_event(event, commands.clone(), bubble).await?
+                }
+                PlayMenuSub::Placeholder(m) => {
+                    m.handle_key_event(event, commands.clone(), bubble).await?
+                }
+                PlayMenuSub::SaveChanges(m) => {
+                    m.handle_key_event(event, commands.clone(), bubble).await?
+                }
+            };
+            if handled {
+                let mut close = false;
+                bubble.retain(|cmd| match cmd {
+                    common::command::Command::CloseView => {
+                        close = true;
+                        false
+                    }
+                    _ => true,
+                });
+                if close {
+                    self.child = None;
+                    self.set_should_draw();
+                    commands.send(common::command::Command::Redraw).await.ok();
+                }
+                return Ok(true);
+            }
+            return Ok(false);
+        }
+
+        let selected = self.category_list.selected();
+
+        match event {
+            KeyEvent::Pressed(Key::B) => {
+                bubble.push_back(common::command::Command::CloseView);
+                return Ok(true);
+            }
+            KeyEvent::Pressed(Key::A) => match selected {
+                0 => {
+                    self.child = Some(PlayMenuSub::Frontend(FrontendMenu::new(
+                        self.rect,
+                        self.res.clone(),
+                    )));
+                    self.set_should_draw();
+                    commands.send(common::command::Command::Redraw).await.ok();
+                    return Ok(true);
+                }
+                1 => {
+                    self.child = Some(PlayMenuSub::Placeholder(PlaceholderMenu::new(
+                        self.rect,
+                        self.res.clone(),
+                        "Controls",
+                    )));
+                    self.set_should_draw();
+                    commands.send(common::command::Command::Redraw).await.ok();
+                    return Ok(true);
+                }
+                2 => {
+                    self.child = Some(PlayMenuSub::Placeholder(PlaceholderMenu::new(
+                        self.rect,
+                        self.res.clone(),
+                        "Shortcuts",
+                    )));
+                    self.set_should_draw();
+                    commands.send(common::command::Command::Redraw).await.ok();
+                    return Ok(true);
+                }
+                3 => {
+                    self.child = Some(PlayMenuSub::Placeholder(PlaceholderMenu::new(
+                        self.rect,
+                        self.res.clone(),
+                        "Core Options",
+                    )));
+                    self.set_should_draw();
+                    commands.send(common::command::Command::Redraw).await.ok();
+                    return Ok(true);
+                }
+                4 => {
+                    self.child = Some(PlayMenuSub::SaveChanges(SaveChangesMenu::new(
+                        self.rect,
+                        self.res.clone(),
+                    )));
+                    self.set_should_draw();
+                    commands.send(common::command::Command::Redraw).await.ok();
+                    return Ok(true);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+
+        self.category_list
+            .handle_key_event(event, commands, bubble)
+            .await
+    }
+
+    fn children(&self) -> Vec<&dyn View> {
+        if let Some(child) = &self.child {
+            match child {
+                PlayMenuSub::Frontend(m) => return m.children(),
+                PlayMenuSub::Placeholder(m) => return m.children(),
+                PlayMenuSub::SaveChanges(m) => return m.children(),
+            }
+        }
+        vec![&self.category_list, &self.button_hints]
+    }
+
+    fn children_mut(&mut self) -> Vec<&mut dyn View> {
+        if let Some(child) = &mut self.child {
+            match child {
+                PlayMenuSub::Frontend(m) => return m.children_mut(),
+                PlayMenuSub::Placeholder(m) => return m.children_mut(),
+                PlayMenuSub::SaveChanges(m) => return m.children_mut(),
+            }
+        }
+        vec![&mut self.category_list, &mut self.button_hints]
+    }
+
+    fn bounding_box(&mut self, _styles: &Stylesheet) -> Rect {
+        self.rect
+    }
+
+    fn set_position(&mut self, point: Point) {
+        self.rect.x = point.x;
+        self.rect.y = point.y;
+    }
+}
+
+// ---- Frontend Settings sub-menu ----
+
+struct FrontendMenu {
+    rect: Rect,
+    settings_list: SettingsList,
+    button_hints: ButtonHints<String>,
+    values: Vec<String>,
+}
+
+impl FrontendMenu {
+    pub fn new(rect: Rect, res: Resources) -> Self {
+        let locale = res.get::<Locale>();
+        let styles = res.get::<Stylesheet>();
+
+        let mut button_hints = ButtonHints::new(
+            res.clone(),
+            vec![ButtonHint::new(
+                res.clone(),
+                Point::zero(),
+                Key::B,
+                locale.t("button-back"),
                 Alignment::Left,
             )],
             vec![
@@ -84,8 +340,6 @@ impl PlayMenu {
             "Thread Video".to_string(),
             "Debug HUD".to_string(),
             "Max FF Speed".to_string(),
-            "Save as Default".to_string(),
-            "Restore Defaults".to_string(),
         ];
 
         let initial_values = vec![
@@ -97,8 +351,6 @@ impl PlayMenu {
             "Off".to_string(),
             "Off".to_string(),
             "4x".to_string(),
-            "".to_string(),
-            "".to_string(),
         ];
 
         let right_views: Vec<Box<dyn View>> = initial_values
@@ -127,25 +379,9 @@ impl PlayMenu {
 
         Self {
             rect,
-            game_name: name,
             settings_list,
             button_hints,
             values: initial_values,
-        }
-    }
-
-    pub fn set_value(&mut self, index: usize, value: &str) {
-        if index < self.values.len() {
-            self.values[index] = value.to_string();
-            self.settings_list.set_right(
-                index,
-                Box::new(Label::new(
-                    Point::zero(),
-                    value.to_string(),
-                    Alignment::Right,
-                    None,
-                )),
-            );
         }
     }
 
@@ -238,14 +474,13 @@ impl PlayMenu {
 }
 
 #[async_trait(?Send)]
-impl View for PlayMenu {
+impl View for FrontendMenu {
     fn draw(
         &mut self,
         display: &mut <DefaultPlatform as Platform>::Display,
         styles: &Stylesheet,
     ) -> Result<bool> {
         let mut drawn = false;
-        drawn |= self.game_name.draw(display, styles)?;
         drawn |= self.settings_list.draw(display, styles)?;
         if self.button_hints.should_draw() {
             display.load(self.button_hints.bounding_box(styles))?;
@@ -255,13 +490,10 @@ impl View for PlayMenu {
     }
 
     fn should_draw(&self) -> bool {
-        self.game_name.should_draw()
-            || self.settings_list.should_draw()
-            || self.button_hints.should_draw()
+        self.settings_list.should_draw() || self.button_hints.should_draw()
     }
 
     fn set_should_draw(&mut self) {
-        self.game_name.set_should_draw();
         self.settings_list.set_should_draw();
         self.button_hints.set_should_draw();
     }
@@ -269,7 +501,7 @@ impl View for PlayMenu {
     async fn handle_key_event(
         &mut self,
         event: KeyEvent,
-        _commands: Sender<common::command::Command>,
+        commands: Sender<common::command::Command>,
         bubble: &mut VecDeque<common::command::Command>,
     ) -> Result<bool> {
         let selected = self.settings_list.selected();
@@ -289,32 +521,261 @@ impl View for PlayMenu {
                 Self::send_udp_command(selected, &self.values[selected].clone()).await?;
                 return Ok(true);
             }
-            KeyEvent::Pressed(Key::A) if selected == 8 => {
-                RetroArchCommand::ReloadConfig.send().await?;
-                return Ok(true);
-            }
-            KeyEvent::Pressed(Key::A) if selected == 9 => {
-                RetroArchCommand::ReloadConfig.send().await?;
-                return Ok(true);
-            }
             _ => {}
         }
 
         self.settings_list
-            .handle_key_event(event, _commands, bubble)
+            .handle_key_event(event, commands, bubble)
             .await
     }
 
     fn children(&self) -> Vec<&dyn View> {
-        vec![&self.game_name, &self.settings_list, &self.button_hints]
+        vec![&self.settings_list, &self.button_hints]
     }
 
     fn children_mut(&mut self) -> Vec<&mut dyn View> {
-        vec![
-            &mut self.game_name,
-            &mut self.settings_list,
-            &mut self.button_hints,
-        ]
+        vec![&mut self.settings_list, &mut self.button_hints]
+    }
+
+    fn bounding_box(&mut self, _styles: &Stylesheet) -> Rect {
+        self.rect
+    }
+
+    fn set_position(&mut self, point: Point) {
+        self.rect.x = point.x;
+        self.rect.y = point.y;
+    }
+}
+
+// ---- Placeholder sub-menu for deferred options ----
+
+struct PlaceholderMenu {
+    rect: Rect,
+    msg: Label<String>,
+    button_hints: ButtonHints<String>,
+}
+
+impl PlaceholderMenu {
+    pub fn new(rect: Rect, res: Resources, _sub_name: &str) -> Self {
+        let locale = res.get::<Locale>();
+        let styles = res.get::<Stylesheet>();
+
+        let msg = Label::new(
+            Point::new(rect.x + rect.w as i32 / 2, rect.y + rect.h as i32 / 2),
+            "Option deferred to next iteration".to_string(),
+            Alignment::Center,
+            None,
+        );
+
+        let button_hints = ButtonHints::new(
+            res.clone(),
+            vec![ButtonHint::new(
+                res.clone(),
+                Point::zero(),
+                Key::B,
+                locale.t("button-back"),
+                Alignment::Left,
+            )],
+            vec![],
+        );
+
+        drop(locale);
+        drop(styles);
+
+        Self {
+            rect,
+            msg,
+            button_hints,
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl View for PlaceholderMenu {
+    fn draw(
+        &mut self,
+        display: &mut <DefaultPlatform as Platform>::Display,
+        styles: &Stylesheet,
+    ) -> Result<bool> {
+        let mut drawn = false;
+        drawn |= self.msg.draw(display, styles)?;
+        if self.button_hints.should_draw() {
+            display.load(self.button_hints.bounding_box(styles))?;
+            drawn |= self.button_hints.draw(display, styles)?;
+        }
+        Ok(drawn)
+    }
+
+    fn should_draw(&self) -> bool {
+        self.msg.should_draw() || self.button_hints.should_draw()
+    }
+
+    fn set_should_draw(&mut self) {
+        self.msg.set_should_draw();
+        self.button_hints.set_should_draw();
+    }
+
+    async fn handle_key_event(
+        &mut self,
+        event: KeyEvent,
+        _commands: Sender<common::command::Command>,
+        bubble: &mut VecDeque<common::command::Command>,
+    ) -> Result<bool> {
+        if event == KeyEvent::Pressed(Key::B) {
+            bubble.push_back(common::command::Command::CloseView);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn children(&self) -> Vec<&dyn View> {
+        vec![&self.msg, &self.button_hints]
+    }
+
+    fn children_mut(&mut self) -> Vec<&mut dyn View> {
+        vec![&mut self.msg, &mut self.button_hints]
+    }
+
+    fn bounding_box(&mut self, _styles: &Stylesheet) -> Rect {
+        self.rect
+    }
+
+    fn set_position(&mut self, point: Point) {
+        self.rect.x = point.x;
+        self.rect.y = point.y;
+    }
+}
+
+// ---- Save Changes sub-menu ----
+
+struct SaveChangesMenu {
+    rect: Rect,
+    settings_list: SettingsList,
+    button_hints: ButtonHints<String>,
+}
+
+impl SaveChangesMenu {
+    pub fn new(rect: Rect, res: Resources) -> Self {
+        let locale = res.get::<Locale>();
+        let styles = res.get::<Stylesheet>();
+        let mut button_hints = ButtonHints::new(
+            res.clone(),
+            vec![ButtonHint::new(
+                res.clone(),
+                Point::zero(),
+                Key::B,
+                locale.t("button-back"),
+                Alignment::Left,
+            )],
+            vec![ButtonHint::new(
+                res.clone(),
+                Point::zero(),
+                Key::A,
+                locale.t("button-select"),
+                Alignment::Right,
+            )],
+        );
+        let content_top =
+            rect.y + styles.ui.margin_y + styles.ui.ui_font.size as i32 + styles.ui.margin_y / 2;
+        let content_height = (button_hints.bounding_box(&styles).y - content_top) as u32;
+        let entry_labels = vec![
+            "Save for console".to_string(),
+            "Save for game".to_string(),
+            "Restore defaults".to_string(),
+        ];
+        let right_views = (0..3)
+            .map(|_| {
+                Box::new(Label::new(
+                    Point::zero(),
+                    "".to_string(),
+                    Alignment::Right,
+                    None,
+                )) as Box<dyn View>
+            })
+            .collect();
+        let settings_list = SettingsList::new(
+            res.clone(),
+            Rect::new(
+                rect.x + styles.ui.margin_x,
+                content_top,
+                rect.w - styles.ui.margin_x as u32 * 2,
+                content_height,
+            ),
+            entry_labels,
+            right_views,
+            styles.ui.ui_font.size + styles.ui.padding_y as u32,
+        );
+        drop(locale);
+        drop(styles);
+        Self {
+            rect,
+            settings_list,
+            button_hints,
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl View for SaveChangesMenu {
+    fn draw(
+        &mut self,
+        display: &mut <DefaultPlatform as Platform>::Display,
+        styles: &Stylesheet,
+    ) -> Result<bool> {
+        let mut drawn = false;
+        drawn |= self.settings_list.draw(display, styles)?;
+        if self.button_hints.should_draw() {
+            display.load(self.button_hints.bounding_box(styles))?;
+            drawn |= self.button_hints.draw(display, styles)?;
+        }
+        Ok(drawn)
+    }
+
+    fn should_draw(&self) -> bool {
+        self.settings_list.should_draw() || self.button_hints.should_draw()
+    }
+
+    fn set_should_draw(&mut self) {
+        self.settings_list.set_should_draw();
+        self.button_hints.set_should_draw();
+    }
+
+    async fn handle_key_event(
+        &mut self,
+        event: KeyEvent,
+        commands: Sender<common::command::Command>,
+        bubble: &mut VecDeque<common::command::Command>,
+    ) -> Result<bool> {
+        let selected = self.settings_list.selected();
+        match event {
+            KeyEvent::Pressed(Key::B) => {
+                bubble.push_back(common::command::Command::CloseView);
+                Ok(true)
+            }
+            KeyEvent::Pressed(Key::A) => {
+                match selected {
+                    0 => RetroArchCommand::SaveConfigConsole.send().await?,
+                    1 => RetroArchCommand::SaveConfigGame.send().await?,
+                    2 => RetroArchCommand::RestoreDefaults.send().await?,
+                    _ => {}
+                }
+                bubble.push_back(common::command::Command::CloseView);
+                Ok(true)
+            }
+            _ => {
+                self.settings_list
+                    .handle_key_event(event, commands, bubble)
+                    .await
+            }
+        }
+    }
+
+    fn children(&self) -> Vec<&dyn View> {
+        vec![&self.settings_list, &self.button_hints]
+    }
+
+    fn children_mut(&mut self) -> Vec<&mut dyn View> {
+        vec![&mut self.settings_list, &mut self.button_hints]
     }
 
     fn bounding_box(&mut self, _styles: &Stylesheet) -> Rect {

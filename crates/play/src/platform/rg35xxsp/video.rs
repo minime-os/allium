@@ -75,7 +75,7 @@ impl Rg35xxspVideo {
         })
     }
 
-    fn width(&self) -> u32 {
+    fn fb_width(&self) -> u32 {
         self.fb.var_screen_info.xres
     }
 
@@ -141,11 +141,11 @@ impl Rg35xxspVideo {
             source_width,
             source_height,
             aspect_ratio,
-            self.width(),
+            self.fb_width(),
             self.height,
         )?;
         self.scale_factor = if mode == ScaleMode::Native {
-            let sx = self.width() / source_width;
+            let sx = self.fb_width() / source_width;
             let sy = self.height / source_height;
             Some(sx.min(sy).max(1))
         } else {
@@ -179,31 +179,31 @@ fn get_fb_format(bits: u32) -> Result<Rg35xxspFramebufferFormat> {
 // RG35xxSP Pixel Scaling & Color Space Conversion
 // =========================================================================
 
-fn scale_rgb565_row(
-    frame: &CapturedFrame,
-    out: *mut u16,
-    out_pitch_px: usize,
-    _out_h: u32,
+/// Per-blit context bundling all parameters that stay constant
+/// across row-scaling calls. Modeled after minarch's GFX_Renderer.
+struct BlitContext<'a> {
+    frame: &'a CapturedFrame,
     rect: ScaleRect,
-    dst_y: u32,
-    src_y: usize,
     step_x: u32,
     effect: ScreenEffect,
     scale_factor: Option<u32>,
-) {
-    let src_ptr = unsafe { (frame.data.as_ptr() as *const u16).add(src_y * (frame.pitch / 2)) };
-    let out_row = unsafe { out.add((rect.y + dst_y) as usize * out_pitch_px) };
+}
+
+fn scale_rgb565_row(ctx: &BlitContext, out: *mut u16, pitch_px: usize, dst_y: u32, src_y: usize) {
+    let src_ptr =
+        unsafe { (ctx.frame.data.as_ptr() as *const u16).add(src_y * (ctx.frame.pitch / 2)) };
+    let out_row = unsafe { out.add((ctx.rect.y + dst_y) as usize * pitch_px) };
     let mut fp_x = 0;
-    for dst_x in 0..rect.width {
+    for dst_x in 0..ctx.rect.width {
         let src_x = (fp_x >> 16) as usize;
-        fp_x += step_x;
+        fp_x += ctx.step_x;
         let pixel = unsafe { *src_ptr.add(src_x) };
-        let pixel = if let Some(scale) = scale_factor {
-            apply_rgb565_effect(pixel, effect, scale, dst_x, dst_y)
+        let pixel = if let Some(scale) = ctx.scale_factor {
+            apply_rgb565_effect(pixel, ctx.effect, scale, dst_x, dst_y)
         } else {
             pixel
         };
-        let out_x = (rect.x + dst_x) as usize;
+        let out_x = (ctx.rect.x + dst_x) as usize;
         unsafe {
             *out_row.add(out_x) = pixel;
         }
@@ -227,56 +227,48 @@ pub fn scale_rgb565_to_rgb565(
         rect,
         RGB565_BYTES_PER_PIXEL,
     )?;
-    let step_x = ((frame.width as u32) << 16) / rect.width;
-    let step_y = ((frame.height as u32) << 16) / rect.height;
+    let step_x = (frame.width << 16) / rect.width;
+    let step_y = (frame.height << 16) / rect.height;
     let out_ptr = output.as_mut_ptr() as *mut u16;
     let out_pitch_px = output_pitch / 2;
+    let ctx = BlitContext {
+        frame,
+        rect,
+        step_x,
+        effect,
+        scale_factor,
+    };
     let mut fp_y = 0;
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_rgb565_row(
-            frame,
-            out_ptr,
-            out_pitch_px,
-            output_height,
-            rect,
-            dst_y,
-            src_y,
-            step_x,
-            effect,
-            scale_factor,
-        );
+        scale_rgb565_row(&ctx, out_ptr, out_pitch_px, dst_y, src_y);
     }
     Ok(())
 }
 
 fn scale_rgb565_to_bgra8888_row(
-    frame: &CapturedFrame,
+    ctx: &BlitContext,
     out: *mut u32,
-    out_pitch_px: usize,
-    _out_h: u32,
-    rect: ScaleRect,
+    pitch_px: usize,
     dst_y: u32,
     src_y: usize,
-    step_x: u32,
-    effect: ScreenEffect,
-    scale_factor: Option<u32>,
 ) {
-    let src_ptr = unsafe { (frame.data.as_ptr() as *const u16).add(src_y * (frame.pitch / 2)) };
-    let out_row = unsafe { out.add((rect.y + dst_y) as usize * out_pitch_px) };
+    let src_ptr =
+        unsafe { (ctx.frame.data.as_ptr() as *const u16).add(src_y * (ctx.frame.pitch / 2)) };
+    let out_row = unsafe { out.add((ctx.rect.y + dst_y) as usize * pitch_px) };
     let mut fp_x = 0;
-    for dst_x in 0..rect.width {
+    for dst_x in 0..ctx.rect.width {
         let src_x = (fp_x >> 16) as usize;
-        fp_x += step_x;
+        fp_x += ctx.step_x;
         let pixel = unsafe { *src_ptr.add(src_x) };
-        let pixel = if let Some(scale) = scale_factor {
-            apply_rgb565_effect(pixel, effect, scale, dst_x, dst_y)
+        let pixel = if let Some(scale) = ctx.scale_factor {
+            apply_rgb565_effect(pixel, ctx.effect, scale, dst_x, dst_y)
         } else {
             pixel
         };
         let bgra = rgb565_to_bgra8888(pixel);
-        let out_x = (rect.x + dst_x) as usize;
+        let out_x = (ctx.rect.x + dst_x) as usize;
         unsafe {
             *out_row.add(out_x) = bgra;
         }
@@ -300,49 +292,43 @@ pub fn scale_rgb565_to_bgra8888(
         rect,
         BGRA8888_BYTES_PER_PIXEL,
     )?;
-    let step_x = ((frame.width as u32) << 16) / rect.width;
-    let step_y = ((frame.height as u32) << 16) / rect.height;
+    let step_x = (frame.width << 16) / rect.width;
+    let step_y = (frame.height << 16) / rect.height;
     let out_ptr = output.as_mut_ptr() as *mut u32;
     let out_pitch_px = output_pitch / 4;
+    let ctx = BlitContext {
+        frame,
+        rect,
+        step_x,
+        effect,
+        scale_factor,
+    };
     let mut fp_y = 0;
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_rgb565_to_bgra8888_row(
-            frame,
-            out_ptr,
-            out_pitch_px,
-            output_height,
-            rect,
-            dst_y,
-            src_y,
-            step_x,
-            effect,
-            scale_factor,
-        );
+        scale_rgb565_to_bgra8888_row(&ctx, out_ptr, out_pitch_px, dst_y, src_y);
     }
     Ok(())
 }
 
 fn scale_xrgb8888_to_bgra8888_row(
-    frame: &CapturedFrame,
+    ctx: &BlitContext,
     out: *mut u32,
-    out_pitch_px: usize,
-    _out_h: u32,
-    rect: ScaleRect,
+    pitch_px: usize,
     dst_y: u32,
     src_y: usize,
-    step_x: u32,
 ) {
-    let src_ptr = unsafe { (frame.data.as_ptr() as *const u32).add(src_y * (frame.pitch / 4)) };
-    let out_row = unsafe { out.add((rect.y + dst_y) as usize * out_pitch_px) };
+    let src_ptr =
+        unsafe { (ctx.frame.data.as_ptr() as *const u32).add(src_y * (ctx.frame.pitch / 4)) };
+    let out_row = unsafe { out.add((ctx.rect.y + dst_y) as usize * pitch_px) };
     let mut fp_x = 0;
-    for dst_x in 0..rect.width {
+    for dst_x in 0..ctx.rect.width {
         let src_x = (fp_x >> 16) as usize;
-        fp_x += step_x;
+        fp_x += ctx.step_x;
         let pixel = unsafe { *src_ptr.add(src_x) };
         let bgra = pixel | 0xff000000;
-        let out_x = (rect.x + dst_x) as usize;
+        let out_x = (ctx.rect.x + dst_x) as usize;
         unsafe {
             *out_row.add(out_x) = bgra;
         }
@@ -364,24 +350,22 @@ pub fn scale_xrgb8888_to_bgra8888(
         rect,
         BGRA8888_BYTES_PER_PIXEL,
     )?;
-    let step_x = ((frame.width as u32) << 16) / rect.width;
-    let step_y = ((frame.height as u32) << 16) / rect.height;
+    let step_x = (frame.width << 16) / rect.width;
+    let step_y = (frame.height << 16) / rect.height;
     let out_ptr = output.as_mut_ptr() as *mut u32;
     let out_pitch_px = output_pitch / 4;
+    let ctx = BlitContext {
+        frame,
+        rect,
+        step_x,
+        effect: ScreenEffect::default(),
+        scale_factor: None,
+    };
     let mut fp_y = 0;
     for dst_y in 0..rect.height {
         let src_y = (fp_y >> 16) as usize;
         fp_y += step_y;
-        scale_xrgb8888_to_bgra8888_row(
-            frame,
-            out_ptr,
-            out_pitch_px,
-            output_height,
-            rect,
-            dst_y,
-            src_y,
-            step_x,
-        );
+        scale_xrgb8888_to_bgra8888_row(&ctx, out_ptr, out_pitch_px, dst_y, src_y);
     }
     Ok(())
 }

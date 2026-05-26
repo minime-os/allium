@@ -32,6 +32,7 @@ pub struct FillStats {
 
 impl AudioQueue {
     // Creates a new bounded stereo sound queue buffer.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(capacity_frames: usize, sample_rate: f64) -> (AudioProducer, AudioConsumer) {
         let capacity_frames = capacity_frames.max(1);
         let capacity_samples = capacity_frames * CHANNELS;

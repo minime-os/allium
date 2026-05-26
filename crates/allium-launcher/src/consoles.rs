@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 use common::constants::{
     ALLIUM_CONFIG_CONSOLES, ALLIUM_CONFIG_CORES, ALLIUM_CONFIG_PLAY, ALLIUM_PLAY, ALLIUM_RETROARCH,
+    ALLIUM_SD_ROOT,
 };
 use log::{debug, error, info, trace};
 
@@ -246,9 +247,8 @@ impl ConsoleMapper {
                 if play_enabled {
                     vec![
                         "--core".to_string(),
-                        ALLIUM_RETROARCH
-                            .parent()
-                            .unwrap()
+                        ALLIUM_SD_ROOT
+                            .join("RetroArch")
                             .join(".retroarch")
                             .join("cores")
                             .join(format!("{libretro_core}_libretro.so"))

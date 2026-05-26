@@ -11,25 +11,23 @@ pub fn weight3_1_rgb565(a: u16, b: u16) -> u16 {
     let r = ((3 * ((a >> 11) & 0x1F) + ((b >> 11) & 0x1F)) >> 2) << 11;
     let g = ((3 * ((a >> 5) & 0x3F) + ((b >> 5) & 0x3F)) >> 2) << 5;
     let b_out = (3 * (a & 0x1F) + (b & 0x1F)) >> 2;
-    (r | g | b_out) as u16
+    r | g | b_out
 }
 
 /// Blend two RGB565 pixels with weight 2:3 (a gets 40%, b gets 60%).
-#[allow(dead_code)]
 pub fn weight2_3_rgb565(a: u16, b: u16) -> u16 {
     let r = ((2 * ((a >> 11) & 0x1F) + 3 * ((b >> 11) & 0x1F)) / 5) << 11;
     let g = ((2 * ((a >> 5) & 0x3F) + 3 * ((b >> 5) & 0x3F)) / 5) << 5;
     let b_out = (2 * (a & 0x1F) + 3 * (b & 0x1F)) / 5;
-    (r | g | b_out) as u16
+    r | g | b_out
 }
 
 /// Blend two RGB565 pixels with weight 3:2 (a gets 60%, b gets 40%).
-#[allow(dead_code)]
 pub fn weight3_2_rgb565(a: u16, b: u16) -> u16 {
     let r = ((3 * ((a >> 11) & 0x1F) + 2 * ((b >> 11) & 0x1F)) / 5) << 11;
     let g = ((3 * ((a >> 5) & 0x3F) + 2 * ((b >> 5) & 0x3F)) / 5) << 5;
     let b_out = (3 * (a & 0x1F) + 2 * (b & 0x1F)) / 5;
-    (r | g | b_out) as u16
+    r | g | b_out
 }
 
 /// Apply a procedural effect to an RGB565 pixel at a given output position.

@@ -31,7 +31,8 @@ CORES := $(filter-out libretro-common,$(CORES))
 
 IMAGE_PACKAGES := \
 	board-rg35xxsp \
-	linux-rg35xxsp
+	linux-rg35xxsp \
+	u-boot-rg35xxsp
 
 BOOTSTRAP_PACKAGES := \
 	alpine-sdk \
@@ -43,8 +44,8 @@ BOOTSTRAP_PACKAGES := \
 	coreutils \
 	curl \
 	device-mapper \
-	dtc \
 	dosfstools \
+	dtc \
 	e2fsprogs \
 	elfutils-dev \
 	erofs-utils \

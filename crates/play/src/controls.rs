@@ -197,8 +197,8 @@ impl Default for ShortcutBindings {
 impl ShortcutBindings {
     /// Parse a combo string like "MENU+X" or "Start" into (requires_menu, key).
     pub fn parse_combo(s: &str) -> Option<(bool, Key)> {
-        if s.starts_with(MENU_PREFIX) {
-            s[MENU_PREFIX.len()..].parse().ok().map(|k| (true, k))
+        if let Some(rest) = s.strip_prefix(MENU_PREFIX) {
+            rest.parse().ok().map(|k| (true, k))
         } else {
             s.parse().ok().map(|k| (false, k))
         }

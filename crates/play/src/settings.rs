@@ -8,7 +8,6 @@
 //! Values are merged in order; later files override earlier ones.
 
 use std::fs;
-use std::io::Write;
 
 use anyhow::{Context, Result};
 use log::info;
@@ -28,16 +27,12 @@ pub enum SaveScope {
 /// Screen effect applied at integer/native scaling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ScreenEffect {
+    #[default]
     None,
     Grid,
     Line,
-}
-
-impl Default for ScreenEffect {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl std::str::FromStr for ScreenEffect {
@@ -56,16 +51,12 @@ impl std::str::FromStr for ScreenEffect {
 /// Sharpness used by the scaler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ScreenSharpness {
     Sharp,
     Crisp,
+    #[default]
     Soft,
-}
-
-impl Default for ScreenSharpness {
-    fn default() -> Self {
-        Self::Soft
-    }
 }
 
 impl std::str::FromStr for ScreenSharpness {
@@ -84,16 +75,12 @@ impl std::str::FromStr for ScreenSharpness {
 /// Frame-present timing mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TearingMode {
     Off,
+    #[default]
     Lenient,
     Strict,
-}
-
-impl Default for TearingMode {
-    fn default() -> Self {
-        Self::Lenient
-    }
 }
 
 impl std::str::FromStr for TearingMode {
@@ -112,16 +99,12 @@ impl std::str::FromStr for TearingMode {
 /// CPU governor target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CpuSpeed {
     Powersave,
+    #[default]
     Normal,
     Performance,
-}
-
-impl Default for CpuSpeed {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl std::str::FromStr for CpuSpeed {

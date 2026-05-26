@@ -32,6 +32,9 @@ pub enum ControlEvent {
     SetMaxFF(u8),
     SetCoreOption { key: String, value: String },
     ReloadConfig,
+    SaveConfigConsole,
+    SaveConfigGame,
+    RestoreDefaults,
     SetControl { retro_button: String, key: String },
     SetShortcut { action: String, combo: String },
 }
@@ -66,6 +69,9 @@ impl ControlEvent {
             C::SetMaxFF(speed) => Some(Self::SetMaxFF(speed)),
             C::SetCoreOption { key, value } => Some(Self::SetCoreOption { key, value }),
             C::ReloadConfig => Some(Self::ReloadConfig),
+            C::SaveConfigConsole => Some(Self::SaveConfigConsole),
+            C::SaveConfigGame => Some(Self::SaveConfigGame),
+            C::RestoreDefaults => Some(Self::RestoreDefaults),
             C::SetControl { retro_button, key } => Some(Self::SetControl { retro_button, key }),
             C::SetShortcut { action, combo } => Some(Self::SetShortcut { action, combo }),
             _ => None,
@@ -232,6 +238,18 @@ mod tests {
         assert_eq!(
             ControlEvent::from_retroarch_command(RetroArchCommand::ReloadConfig),
             Some(ControlEvent::ReloadConfig)
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SaveConfigConsole),
+            Some(ControlEvent::SaveConfigConsole)
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::SaveConfigGame),
+            Some(ControlEvent::SaveConfigGame)
+        );
+        assert_eq!(
+            ControlEvent::from_retroarch_command(RetroArchCommand::RestoreDefaults),
+            Some(ControlEvent::RestoreDefaults)
         );
     }
 

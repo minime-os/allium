@@ -39,14 +39,12 @@ impl Rg35xxspPlatform {
         // Scan all event input devices dynamically
         if let Ok(entries) = fs::read_dir("/dev/input") {
             for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with("event") {
-                        if let Ok(dev) = Device::open(entry.path()) {
-                            if let Ok(stream) = dev.into_event_stream() {
-                                inputs.push(stream);
-                            }
-                        }
-                    }
+                if let Some(name) = entry.file_name().to_str()
+                    && name.starts_with("event")
+                    && let Ok(dev) = Device::open(entry.path())
+                    && let Ok(stream) = dev.into_event_stream()
+                {
+                    inputs.push(stream);
                 }
             }
         }
@@ -123,7 +121,7 @@ pub fn init_logging() -> Result<()> {
     use std::fs;
 
     let _ = fs::write("/mnt/SDCARD/.allium/logs/play_started.marker", "started");
-    let _ = common::log::init_hardware_log(&*ALLIUM_PLAY_LOG);
+    let _ = common::log::init_hardware_log(&ALLIUM_PLAY_LOG);
     println!(
         "--- Play starting at {} ---",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")

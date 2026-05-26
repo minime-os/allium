@@ -23,7 +23,7 @@ pub fn dump_frame(
 }
 
 pub fn encode_rgb565(frame: &CapturedFrame) -> Result<Vec<u8>> {
-    encode_ppm(frame, RGB565_BYTES_PER_PIXEL, |bytes| rgb565_to_rgb(bytes))
+    encode_ppm(frame, RGB565_BYTES_PER_PIXEL, rgb565_to_rgb)
 }
 
 pub fn encode_xrgb8888(frame: &CapturedFrame) -> Result<Vec<u8>> {

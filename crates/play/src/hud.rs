@@ -73,6 +73,7 @@ impl HudState {
         (tl, tr, bl, br)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
         data: &mut [u8],
@@ -155,6 +156,7 @@ fn write_pixel(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_black_rect(
     ox: i32,
     oy: i32,
@@ -173,6 +175,7 @@ fn draw_black_rect(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_character(
     c: char,
     ox: i32,
@@ -203,6 +206,7 @@ fn draw_character(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn blit_text(
     text: &str,
     mut ox: i32,

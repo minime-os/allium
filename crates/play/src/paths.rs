@@ -9,11 +9,8 @@ pub struct PlayPaths {
     pub rom: PathBuf,
     pub core_path: PathBuf,
     pub core_id: String,
-    #[allow(dead_code)]
     pub save_dir: PathBuf,
-    #[allow(dead_code)]
     pub state_dir: PathBuf,
-    #[allow(dead_code)]
     pub config_dir: PathBuf,
 }
 

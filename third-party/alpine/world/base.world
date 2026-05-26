@@ -8,8 +8,10 @@ dbus-openrc
 dropbear
 e2fsprogs
 f2fs-tools
-iwd
-iwd-openrc
+openrc
+wireless-tools
+wpa_supplicant
+wpa_supplicant-openrc
 iw
 linux-firmware-rtl_bt
 linux-firmware-rtw88
@@ -25,3 +27,4 @@ sdl2_ttf
 wireless-regdb
 tzdata
 util-linux
+

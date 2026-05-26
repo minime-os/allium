@@ -60,6 +60,8 @@ lazy_static! {
         ALLIUM_BASE_DIR.join("state/allium-launcher.json");
     pub static ref ALLIUM_MENU_STATE: PathBuf =
         ALLIUM_BASE_DIR.join("state/allium-menu.json");
+    pub static ref ALLIUM_PLAY_STATE: PathBuf =
+        ALLIUM_BASE_DIR.join("state/play.json");
     pub static ref ALLIUM_GAME_INFO: PathBuf = ALLIUM_BASE_DIR.join("state/current_game");
     pub static ref ALLIUM_STYLESHEET: PathBuf = ALLIUM_BASE_DIR.join("state/stylesheet.json");
     pub static ref ALLIUM_DISPLAY_SETTINGS: PathBuf = ALLIUM_BASE_DIR.join("state/display.json");
