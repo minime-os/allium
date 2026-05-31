@@ -99,7 +99,7 @@ impl AlliumDState {
     pub fn new() -> Self {
         Self {
             time: Utc::now(),
-            volume: 0,
+            volume: 20,
             brightness: 50,
         }
     }
