@@ -22,7 +22,7 @@ pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
 #[cfg(feature = "simulator")]
 pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
     env::var("ALLIUM_SD_ROOT")
-        .map(|path| PathBuf::from(path))
+        .map(PathBuf::from)
         .unwrap_or_else(|_| env::current_dir().unwrap().join("simulator"))
 });
 #[cfg(not(any(feature = "miyoo", feature = "simulator")))]

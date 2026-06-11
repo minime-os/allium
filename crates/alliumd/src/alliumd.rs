@@ -237,7 +237,7 @@ impl AlliumD<DefaultPlatform> {
     }
 
     pub async fn run_event_loop(&mut self) -> Result<()> {
-        info!("hello from Allium {}", &*ALLIUM_VERSION);
+        info!("hello from Allium {}", *ALLIUM_VERSION);
 
         if DefaultPlatform::has_wifi() {
             info!("wifi detected, loading wifi settings");

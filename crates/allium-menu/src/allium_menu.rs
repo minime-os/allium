@@ -159,11 +159,13 @@ impl AlliumMenu<DefaultPlatform> {
                     let screenshot_path = ALLIUM_SCREENSHOTS_DIR.join(&file_name);
                     info!("saving screenshot to {:?}", screenshot_path);
 
-                    let database = self.res.get::<Database>();
-                    let game_path = std::path::Path::new(&path);
-                    database
-                        .update_screenshot_path(game_path, Some(&screenshot_path))
-                        .ok();
+                    {
+                        let database = self.res.get::<Database>();
+                        let game_path = std::path::Path::new(&path);
+                        database
+                            .update_screenshot_path(game_path, Some(&screenshot_path))
+                            .ok();
+                    }
 
                     #[cfg(feature = "miyoo")]
                     tokio::process::Command::new("screenshot")

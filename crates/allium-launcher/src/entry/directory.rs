@@ -172,7 +172,7 @@ impl Directory {
         #[allow(unused)] locale: &Locale,
     ) -> Result<Vec<Entry>> {
         let mut entries: Vec<Entry> = Vec::with_capacity(64);
-        debug!("Populating entries for directory: {:?}", &self.path);
+        debug!("Populating entries for directory: {:?}", self.path);
 
         let fingerprint = database.get_gamelist_fingerprint(&self.path)?;
         let should_parse_gamelist = |path: &Path| -> Result<bool> {
@@ -208,7 +208,7 @@ impl Directory {
 
         let gamelist = self.path.join("gamelist.xml");
         if should_parse_gamelist(&gamelist)? {
-            debug!("Parsing gamelist.xml at {:?}", &gamelist);
+            debug!("Parsing gamelist.xml at {:?}", gamelist);
             #[cfg(feature = "miyoo")]
             {
                 std::process::Command::new("show")
@@ -262,7 +262,7 @@ impl Directory {
         } else if !gamelist.exists() {
             let gamelist = self.path.join("miyoogamelist.xml");
             if should_parse_gamelist(&gamelist)? {
-                debug!("Parsing miyoogamelist.xml at {:?}", &gamelist);
+                debug!("Parsing miyoogamelist.xml at {:?}", gamelist);
                 #[cfg(feature = "miyoo")]
                 {
                     std::process::Command::new("show")
@@ -335,7 +335,7 @@ impl Directory {
 
         entries.extend(
             std::fs::read_dir(&self.path)
-                .map_err(|e| anyhow!("Failed to open directory: {:?}, {}", &self.path, e))?
+                .map_err(|e| anyhow!("Failed to open directory: {:?}, {}", self.path, e))?
                 .filter_map(std::result::Result::ok)
                 .filter_map(|entry| match Entry::new(entry.path(), console_mapper) {
                     Ok(Some(entry)) => Some(entry),
@@ -355,7 +355,7 @@ impl Directory {
 
         trace!(
             "Final entries for directory {:?}: {:?}",
-            &self.path,
+            self.path,
             entries.iter().map(|e| e.path()).collect::<Vec<_>>()
         );
 

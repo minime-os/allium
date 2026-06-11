@@ -97,7 +97,7 @@ impl ConsoleMapper {
         let consoles = std::fs::read_to_string(ALLIUM_CONFIG_CONSOLES.as_path()).map_err(|e| {
             anyhow!(
                 "Failed to load consoles config: {:?}, {}",
-                &*ALLIUM_CONFIG_CONSOLES,
+                *ALLIUM_CONFIG_CONSOLES,
                 e
             )
         })?;
@@ -108,7 +108,7 @@ impl ConsoleMapper {
         let cores = std::fs::read_to_string(ALLIUM_CONFIG_CORES.as_path()).map_err(|e| {
             anyhow!(
                 "Failed to load cores config: {:?}, {}",
-                &*ALLIUM_CONFIG_CORES,
+                *ALLIUM_CONFIG_CORES,
                 e
             )
         })?;

@@ -505,7 +505,7 @@ pub fn ip_address() -> Option<String> {
 
     #[cfg(feature = "simulator")]
     {
-        return Some("127.0.0.1".to_string());
+        Some("127.0.0.1".to_string())
     }
 
     #[cfg(not(any(feature = "miyoo", feature = "simulator")))]
