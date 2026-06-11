@@ -445,7 +445,7 @@ where
                                 game.favorite = !game.favorite;
                                 self.res
                                     .get::<Database>()
-                                    .set_favorite(&game.path, game.favorite)?;
+                                    .set_favorite(&game.clone().into())?;
                                 self.list.set_item(
                                     self.list.selected(),
                                     format!(

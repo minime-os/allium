@@ -518,11 +518,22 @@ ON CONFLICT(path) DO UPDATE SET play_count = play_count + 1;",
         Ok(())
     }
 
-    /// Sets whether a game is a favorite.
-    pub fn set_favorite(&self, path: &Path, favorite: bool) -> Result<()> {
+    /// Sets whether a game is a favorite, inserting a new row if it doesn't exist.
+    pub fn set_favorite(&self, game: &NewGame) -> Result<()> {
+        // If the game isn't in db it has never been played
         self.conn.as_ref().unwrap().execute(
-            "UPDATE games SET favorite = ? WHERE path = ?",
-            params![if favorite { 1 } else { 0 }, path.display().to_string()],
+            "INSERT INTO games (name, path, image, play_count, play_time, last_played, core, rating, release_date, favorite)
+             VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?)
+             ON CONFLICT(path) DO UPDATE SET favorite = excluded.favorite",
+            params![
+                game.name,
+                game.path.display().to_string(),
+                game.image.as_ref().map(|p| p.display().to_string()),
+                game.core,
+                game.rating,
+                game.release_date,
+                if game.favorite { 1 } else { 0 }
+            ],
         )?;
         Ok(())
     }
