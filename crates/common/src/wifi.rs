@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::Write;
-#[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
+#[cfg(feature = "miyoo")]
 use tokio::process::Command;
 
 use anyhow::Result;
@@ -113,7 +113,7 @@ impl WiFiSettings {
     }
 
     fn update_wpa_supplicant_conf(&self) -> Result<()> {
-        #[cfg(any(feature = "miyoo", feature = "rg35xxsp"))]
+        #[cfg(feature = "miyoo")]
         {
             let mut file = File::create(wpa_supplicant_conf())?;
             write!(
@@ -249,24 +249,6 @@ pub fn wifi_on() -> Result<()> {
             })
     });
 
-    #[cfg(feature = "rg35xxsp")]
-    tokio::spawn(async {
-        let _ = Command::new("modprobe").arg("rtw88_8821cs").status().await;
-        let _ = Command::new("ip")
-            .args(["link", "set", "wlan0", "up"])
-            .status()
-            .await;
-        let conf = wpa_supplicant_conf();
-        let _ = Command::new("wpa_supplicant")
-            .args(["-B", "-Dnl80211", "-iwlan0", "-c", conf])
-            .status()
-            .await;
-        let _ = Command::new("udhcpc")
-            .args(["-i", "wlan0", "-b", "-R"])
-            .status()
-            .await;
-    });
-
     Ok(())
 }
 
@@ -286,18 +268,6 @@ pub fn wifi_off() -> Result<()> {
                 log::error!("wifi-off.sh failed: {}", e);
                 e
             })
-    });
-
-    #[cfg(feature = "rg35xxsp")]
-    tokio::spawn(async {
-        let _ = Command::new("pkill")
-            .args(["-9", "wpa_supplicant", "udhcpc"])
-            .status()
-            .await;
-        let _ = Command::new("ip")
-            .args(["link", "set", "wlan0", "down"])
-            .status()
-            .await;
     });
 
     Ok(())
@@ -516,20 +486,6 @@ pub async fn wait_for_wifi() -> Result<()> {
         .await
         .ok();
 
-    #[cfg(feature = "rg35xxsp")]
-    for _ in 0..30 {
-        if let Ok(output) = Command::new("ip")
-            .args(["addr", "show", "wlan0"])
-            .output()
-            .await
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if stdout.contains("inet ") {
-                return Ok(());
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
     Ok(())
 }
 
@@ -550,31 +506,14 @@ pub fn ip_address() -> Option<String> {
         })
     }
 
-    #[cfg(feature = "rg35xxsp")]
-    {
-        let output = std::process::Command::new("ip")
-            .args(["addr", "show", "wlan0"])
-            .output()
-            .ok()?;
-        let stdout = String::from_utf8(output.stdout).ok()?;
-        for line in stdout.lines() {
-            let line = line.trim();
-            if let Some(rest) = line.strip_prefix("inet ")
-                && let Some(ip) = rest.split_whitespace().next()
-                && ip.split('.').all(|octet| octet.parse::<u8>().is_ok())
-            {
-                return Some(ip.to_string());
-            }
-        }
-        None
-    }
+
 
     #[cfg(feature = "simulator")]
     {
         Some("127.0.0.1".to_string())
     }
 
-    #[cfg(not(any(feature = "miyoo", feature = "simulator", feature = "rg35xxsp")))]
+    #[cfg(not(any(feature = "miyoo", feature = "simulator")))]
     {
         None
     }
@@ -583,9 +522,4 @@ pub fn ip_address() -> Option<String> {
 #[cfg(feature = "miyoo")]
 fn wpa_supplicant_conf() -> &'static str {
     "/appconfigs/wpa_supplicant.conf"
-}
-
-#[cfg(feature = "rg35xxsp")]
-fn wpa_supplicant_conf() -> &'static str {
-    "/tmp/wpa_supplicant.conf"
 }
