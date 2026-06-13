@@ -1,2 +1,0 @@
-/dev/mmcblk0p2  /           erofs  ro,relatime,noauto  0  0
-LABEL=ALLIUM    /mnt/SDCARD vfat   rw,noatime,noauto   0  0
