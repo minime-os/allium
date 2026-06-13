@@ -1,11 +1,9 @@
 #[cfg(feature = "miyoo")]
 pub mod miyoo;
-#[cfg(feature = "rg35xxsp")]
-pub mod rg35xxsp;
 #[cfg(feature = "simulator")]
 pub mod simulator;
 
-#[cfg(not(any(feature = "miyoo", feature = "simulator", feature = "rg35xxsp")))]
+#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
 mod mock;
 
 use anyhow::Result;
@@ -24,10 +22,7 @@ pub type DefaultPlatform = miyoo::MiyooPlatform;
 #[cfg(feature = "simulator")]
 pub type DefaultPlatform = simulator::SimulatorPlatform;
 
-#[cfg(feature = "rg35xxsp")]
-pub type DefaultPlatform = rg35xxsp::Rg35xxspPlatform;
-
-#[cfg(not(any(feature = "miyoo", feature = "simulator", feature = "rg35xxsp")))]
+#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
 pub type DefaultPlatform = mock::MockPlatform;
 
 // Platform is not threadsafe because it is ?Send
