@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [features]
 simulator = ["winit", "softbuffer"]
 miyoo = ["evdev", "framebuffer", "sysfs_gpio"]
+minime = ["evdev", "framebuffer"]
 debug-ui = []
 
 [dependencies]

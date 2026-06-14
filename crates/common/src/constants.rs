@@ -15,9 +15,15 @@ pub static ALLIUM_VERSION: LazyLock<String> = LazyLock::new(|| {
         .unwrap_or_else(|_| "unknown".to_string())
 });
 
-#[cfg(feature = "miyoo")]
+#[cfg(any(feature = "miyoo", feature = "minime"))]
 pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
-    PathBuf::from(&env::var("ALLIUM_SD_ROOT").unwrap_or_else(|_| "/mnt/SDCARD/".to_string()))
+    PathBuf::from(&env::var("ALLIUM_SD_ROOT").unwrap_or_else(|_| {
+        if cfg!(feature = "minime") {
+            "/mnt/sdcard/".to_string()
+        } else {
+            "/mnt/SDCARD/".to_string()
+        }
+    }))
 });
 #[cfg(feature = "simulator")]
 pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
@@ -25,7 +31,7 @@ pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
         .map(PathBuf::from)
         .unwrap_or_else(|_| env::current_dir().unwrap().join("simulator"))
 });
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+#[cfg(not(any(feature = "miyoo", feature = "minime", feature = "simulator")))]
 pub static ALLIUM_SD_ROOT: LazyLock<PathBuf> =
     LazyLock::new(|| PathBuf::from(&env::var("ALLIUM_SD_ROOT").unwrap()));
 

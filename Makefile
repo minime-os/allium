@@ -54,9 +54,17 @@ build: third-party/my283
 		target/$(TARGET_TRIPLE)/release/myctl \
 		target/$(TARGET_TRIPLE)/release/play
 
+.PHONY: build-minime
+build-minime:
+	cargo zigbuild --release --target=aarch64-unknown-linux-gnu --features=minime --bin=alliumd --bin=allium-launcher --bin=activity-tracker --bin=screenshot-viewer --bin=screenshot --bin=say --bin=show --bin=myctl --bin=play
+
 .PHONY: debug
 debug: third-party/my283
 	cargo zigbuild --target=$(TARGET_TRIPLE).$(GLIBC_VERSION) --features=miyoo --bin=alliumd --bin=allium-launcher --bin=activity-tracker --bin=screenshot-viewer --bin=screenshot --bin=say --bin=show --bin=myctl
+
+.PHONY: debug-minime
+debug-minime:
+	cargo zigbuild --target=aarch64-unknown-linux-gnu --features=minime --bin=alliumd --bin=allium-launcher --bin=activity-tracker --bin=screenshot-viewer --bin=screenshot --bin=say --bin=show --bin=myctl
 
 .PHONY: strip-all
 strip-all:

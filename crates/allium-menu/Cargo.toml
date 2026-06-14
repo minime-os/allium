@@ -18,6 +18,7 @@ path = "src/main.rs"
 [features]
 simulator = ["common/simulator"]
 miyoo = ["common/miyoo"]
+minime = ["common/minime"]
 debug-ui = []
 
 [dependencies]

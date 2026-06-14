@@ -1,9 +1,11 @@
 #[cfg(feature = "miyoo")]
 pub mod miyoo;
+#[cfg(feature = "minime")]
+pub mod minime;
 #[cfg(feature = "simulator")]
 pub mod simulator;
 
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+#[cfg(not(any(feature = "miyoo", feature = "minime", feature = "simulator")))]
 mod mock;
 
 use anyhow::Result;
@@ -19,10 +21,13 @@ use crate::{
 #[cfg(feature = "miyoo")]
 pub type DefaultPlatform = miyoo::MiyooPlatform;
 
+#[cfg(feature = "minime")]
+pub type DefaultPlatform = minime::MinimePlatform;
+
 #[cfg(feature = "simulator")]
 pub type DefaultPlatform = simulator::SimulatorPlatform;
 
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+#[cfg(not(any(feature = "miyoo", feature = "minime", feature = "simulator")))]
 pub type DefaultPlatform = mock::MockPlatform;
 
 // Platform is not threadsafe because it is ?Send
