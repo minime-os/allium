@@ -22,12 +22,12 @@ use crate::platform::{Key, KeyEvent, Platform};
 const TRAITS_PATH: &str = "/mnt/sdcard/.minime/traits";
 
 #[derive(Debug, PartialEq, Eq)]
-struct Traits {
-    device_model: String,
-    video_device: String,
-    screen_width: u32,
-    screen_height: u32,
-    screen_rotation: u32,
+pub struct Traits {
+    pub device_model: String,
+    pub video_device: String,
+    pub screen_width: u32,
+    pub screen_height: u32,
+    pub screen_rotation: u32,
     backlight_path: Option<PathBuf>,
     framebuffer_blank_path: Option<PathBuf>,
     battery_capacity_path: Option<PathBuf>,
@@ -36,12 +36,12 @@ struct Traits {
     sound_mixer: Option<String>,
     wifi_interface: Option<String>,
     lid_switch_path: Option<PathBuf>,
-    input_device_names: Vec<String>,
-    keycodes: HashMap<u16, Key>,
+    pub input_device_names: Vec<String>,
+    pub keycodes: HashMap<u16, Key>,
 }
 
 impl Traits {
-    fn load() -> Result<Self> {
+    pub fn load() -> Result<Self> {
         Self::parse(&fs::read_to_string(TRAITS_PATH).context("failed to read Minime traits")?)
     }
 

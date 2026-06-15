@@ -94,3 +94,43 @@ pub enum Key {
     LidClose,
     Unknown,
 }
+
+impl std::fmt::Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::str::FromStr for Key {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        [
+            Key::Up,
+            Key::Down,
+            Key::Left,
+            Key::Right,
+            Key::A,
+            Key::B,
+            Key::C,
+            Key::X,
+            Key::Y,
+            Key::Z,
+            Key::Start,
+            Key::Select,
+            Key::L,
+            Key::R,
+            Key::Menu,
+            Key::L2,
+            Key::R2,
+            Key::Power,
+            Key::VolDown,
+            Key::VolUp,
+            Key::LidClose,
+            Key::Unknown,
+        ]
+        .into_iter()
+        .find(|key| key.to_string() == value)
+        .ok_or_else(|| format!("Unknown key: {value}"))
+    }
+}
