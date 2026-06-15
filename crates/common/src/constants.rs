@@ -70,7 +70,7 @@ lazy_static! {
     // Binaries & Scripts
     pub static ref ALLIUM_LAUNCHER: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-launcher");
     pub static ref ALLIUM_MENU: PathBuf = ALLIUM_BASE_DIR.join("bin/allium-menu");
-    pub static ref ALLIUM_RETROARCH: PathBuf = ALLIUM_BASE_DIR.join("bin/play");
+    pub static ref ALLIUM_RETROARCH: PathBuf = ALLIUM_BASE_DIR.join("bin/play-launch");
     pub static ref ALLIUM_PLAY_LOG: PathBuf = ALLIUM_BASE_DIR.join("logs/play.log");
 }
 
