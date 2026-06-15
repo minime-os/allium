@@ -22,8 +22,11 @@ const BGRA8888_BITS_PER_PIXEL: u32 = 32;
 
 pub struct MinimeVideo {
     fb: Framebuffer,
-    pitch: usize,
+    logical_frame: Vec<u8>,
+    logical_pitch: usize,
+    width: u32,
     height: u32,
+    rotation: u32,
     format: MinimeFramebufferFormat,
     rect: ScaleRect,
     effect: ScreenEffect,
@@ -48,9 +51,10 @@ impl MinimeVideo {
     ) -> Result<Self> {
         let mut fb = Framebuffer::new(&traits.video_device)?;
         let format = get_fb_format(fb.var_screen_info.bits_per_pixel)?;
-        let pitch = fb.fix_screen_info.line_length as usize;
         let width = traits.screen_width;
         let height = traits.screen_height;
+        let bytes_per_pixel = fb.var_screen_info.bits_per_pixel as usize / 8;
+        let logical_pitch = width as usize * bytes_per_pixel;
         let rect = calculate_scale_rect(
             scale,
             source_width,
@@ -61,13 +65,16 @@ impl MinimeVideo {
         )?;
         info!(
             "Minime framebuffer initialized at {}x{} pitch={} bpp={}",
-            width, height, pitch, fb.var_screen_info.bits_per_pixel
+            width, height, fb.fix_screen_info.line_length, fb.var_screen_info.bits_per_pixel
         );
         fb.frame.fill(0);
         Ok(Self {
             fb,
-            pitch,
+            logical_frame: vec![0; logical_pitch * height as usize],
+            logical_pitch,
+            width,
             height,
+            rotation: traits.screen_rotation,
             format,
             rect,
             effect: ScreenEffect::None,
@@ -77,15 +84,15 @@ impl MinimeVideo {
     }
 
     fn fb_width(&self) -> u32 {
-        self.fb.var_screen_info.xres
+        self.width
     }
 
     fn scale_to_fb(&mut self, frame: &CapturedFrame, fmt: VideoFrameFormat) -> Result<()> {
         match (self.format, fmt) {
             (MinimeFramebufferFormat::Rgb565, VideoFrameFormat::Rgb565) => scale_rgb565_to_rgb565(
                 frame,
-                &mut self.fb.frame,
-                self.pitch,
+                &mut self.logical_frame,
+                self.logical_pitch,
                 self.height,
                 self.rect,
                 self.effect,
@@ -97,8 +104,8 @@ impl MinimeVideo {
             (MinimeFramebufferFormat::Bgra8888, VideoFrameFormat::Rgb565) => {
                 scale_rgb565_to_bgra8888(
                     frame,
-                    &mut self.fb.frame,
-                    self.pitch,
+                    &mut self.logical_frame,
+                    self.logical_pitch,
                     self.height,
                     self.rect,
                     self.effect,
@@ -108,13 +115,25 @@ impl MinimeVideo {
             (MinimeFramebufferFormat::Bgra8888, VideoFrameFormat::Xrgb8888) => {
                 scale_xrgb8888_to_bgra8888(
                     frame,
-                    &mut self.fb.frame,
-                    self.pitch,
+                    &mut self.logical_frame,
+                    self.logical_pitch,
                     self.height,
                     self.rect,
                 )
             }
-        }
+        }?;
+        copy_rotated(
+            &self.logical_frame,
+            self.logical_pitch,
+            self.width,
+            self.height,
+            self.fb.var_screen_info.bits_per_pixel as usize / 8,
+            &mut self.fb.frame,
+            self.fb.fix_screen_info.line_length as usize,
+            self.fb.var_screen_info.xres,
+            self.fb.var_screen_info.yres,
+            self.rotation,
+        )
     }
 }
 
@@ -150,7 +169,7 @@ impl MinimeVideo {
         } else {
             None
         };
-        self.fb.frame.fill(0);
+        self.logical_frame.fill(0);
         Ok(())
     }
 
@@ -387,4 +406,58 @@ fn validate_scaled_byte_output(
         ));
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn copy_rotated(
+    source: &[u8],
+    source_pitch: usize,
+    source_width: u32,
+    source_height: u32,
+    bytes_per_pixel: usize,
+    output: &mut [u8],
+    output_pitch: usize,
+    output_width: u32,
+    output_height: u32,
+    rotation: u32,
+) -> Result<()> {
+    if source.len() < source_pitch * source_height as usize
+        || output.len() < output_pitch * output_height as usize
+    {
+        return Err(anyhow!("Framebuffer buffer is smaller than its dimensions"));
+    }
+    for y in 0..source_height {
+        for x in 0..source_width {
+            let (output_x, output_y) = rotate_point(x, y, output_width, output_height, rotation);
+            if output_x >= output_width || output_y >= output_height {
+                return Err(anyhow!("Rotated framebuffer coordinate is out of bounds"));
+            }
+            let source_index = y as usize * source_pitch + x as usize * bytes_per_pixel;
+            let output_index =
+                output_y as usize * output_pitch + output_x as usize * bytes_per_pixel;
+            output[output_index..output_index + bytes_per_pixel]
+                .copy_from_slice(&source[source_index..source_index + bytes_per_pixel]);
+        }
+    }
+    Ok(())
+}
+
+fn rotate_point(x: u32, y: u32, width: u32, height: u32, rotation: u32) -> (u32, u32) {
+    match rotation {
+        90 => (width - y - 1, x),
+        180 => (width - x - 1, height - y - 1),
+        270 => (y, height - x - 1),
+        _ => (x, y),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotates_logical_arc_coordinates_clockwise() {
+        assert_eq!(rotate_point(0, 0, 480, 640, 90), (479, 0));
+        assert_eq!(rotate_point(639, 479, 480, 640, 90), (0, 639));
+    }
 }

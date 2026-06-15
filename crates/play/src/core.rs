@@ -293,7 +293,10 @@ pub struct PlayContext {
 impl PlayContext {
     pub fn new(args: Args) -> Self {
         let paths = PlayPaths::from_args(&args);
-        let config = PlayConfig::load().unwrap_or_default();
+        let mut config = PlayConfig::load().unwrap_or_default();
+        if args.no_autoload {
+            config.autoload = false;
+        }
         Self {
             system_dir: to_cstring(&paths.config_dir),
             save_dir: to_cstring(&paths.save_dir),

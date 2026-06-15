@@ -56,12 +56,14 @@ impl Drop for PlayStateGuard {
     }
 }
 
+fn play_state_path() -> std::path::PathBuf {
+    common::constants::ALLIUM_BASE_DIR.join("state/play.json")
+}
+
 fn main() -> Result<()> {
     init_logging()?;
 
-    // Use hardcoded absolute path to avoid env var / LazyLock resolution issues
-    // when ALLIUM_BASE_DIR is set to an empty string.
-    let state_path = std::path::PathBuf::from("/mnt/SDCARD/.allium/state/play.json");
+    let state_path = play_state_path();
     std::fs::create_dir_all(
         state_path
             .parent()
@@ -93,6 +95,19 @@ fn main() -> Result<()> {
 
         result
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn state_marker_uses_allium_base_dir() {
+        assert_eq!(
+            play_state_path(),
+            common::constants::ALLIUM_BASE_DIR.join("state/play.json")
+        );
+    }
 }
 
 async fn execute_session(

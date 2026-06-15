@@ -39,6 +39,9 @@ pub struct Args {
 
     #[arg(long)]
     pub hud: bool,
+
+    #[arg(long)]
+    pub no_autoload: bool,
 }
 
 impl Args {
@@ -224,6 +227,21 @@ mod tests {
             "--hud",
         ]);
         assert!(args.hud);
+    }
+
+    #[test]
+    fn parse_no_autoload() {
+        let args = Args::parse_from([
+            "play",
+            "--rom",
+            "test.nes",
+            "--core",
+            "nes_libretro.so",
+            "--core-id",
+            "nes",
+            "--no-autoload",
+        ]);
+        assert!(args.no_autoload);
     }
 
     #[test]
