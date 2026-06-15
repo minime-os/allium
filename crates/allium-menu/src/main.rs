@@ -16,7 +16,6 @@ use simple_logger::SimpleLogger;
 async fn main() -> Result<()> {
     SimpleLogger::new().env().init().unwrap();
 
-    #[cfg(not(feature = "simulator"))]
     let info = RetroArchCommand::GetInfo.send_recv().await?.map(|ret| {
         let mut rets = ret.split_ascii_whitespace().skip(1);
 
@@ -29,13 +28,6 @@ async fn main() -> Result<()> {
             disk_slot,
             state_slot,
         }
-    });
-
-    #[cfg(feature = "simulator")]
-    let info = Some(RetroArchInfo {
-        max_disk_slots: 3,
-        disk_slot: 0,
-        state_slot: Some(0),
     });
 
     if info.is_some() {

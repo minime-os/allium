@@ -1,10 +1,8 @@
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+#[cfg(not(feature = "minime"))]
 mod mock;
 
-#[cfg(feature = "miyoo")]
-pub mod miyoo;
-#[cfg(feature = "simulator")]
-pub mod simulator;
+#[cfg(feature = "minime")]
+pub mod minime;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -16,13 +14,10 @@ use crate::{
     display::{Display, settings::DisplaySettings},
 };
 
-#[cfg(feature = "miyoo")]
-pub type DefaultPlatform = miyoo::MiyooPlatform;
+#[cfg(feature = "minime")]
+pub type DefaultPlatform = minime::MinimePlatform;
 
-#[cfg(feature = "simulator")]
-pub type DefaultPlatform = simulator::SimulatorPlatform;
-
-#[cfg(not(any(feature = "miyoo", feature = "simulator")))]
+#[cfg(not(feature = "minime"))]
 pub type DefaultPlatform = mock::MockPlatform;
 
 // Platform is not threadsafe because it is ?Send
@@ -84,6 +79,8 @@ pub enum Key {
     B,
     X,
     Y,
+    C,
+    Z,
     Start,
     Select,
     L,

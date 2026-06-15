@@ -3,7 +3,6 @@ mod clock;
 mod display;
 mod language;
 mod power;
-mod system;
 mod theme;
 mod wifi;
 
@@ -13,7 +12,6 @@ use self::about::About;
 use self::display::Display;
 use self::language::Language;
 use self::power::Power;
-use self::system::SystemUpdate;
 use self::theme::Theme;
 use self::wifi::Wifi;
 
@@ -73,9 +71,8 @@ impl Settings {
         let styles = res.get::<Stylesheet>();
 
         let has_wifi = DefaultPlatform::has_wifi();
-        let mut labels = Vec::with_capacity(8);
+        let mut labels = Vec::with_capacity(7);
         if has_wifi {
-            labels.push(locale.t("settings-system-update-menu"));
             labels.push(locale.t("settings-wifi"));
         }
         labels.push(locale.t("settings-clock"));
@@ -102,17 +99,16 @@ impl Settings {
         let child: Option<Box<dyn SettingsChild>> = if let Some(child) = state.child {
             let mut selected = state.selected;
             if !has_wifi {
-                selected += 2;
-            };
+                selected += 1;
+            }
             match selected {
-                0 => Some(Box::new(SystemUpdate::new(rect, res.clone(), Some(child)))),
-                1 => Some(Box::new(Wifi::new(rect, res.clone(), Some(child)))),
-                2 => Some(Box::new(Clock::new(rect, res.clone(), Some(child)))),
-                3 => Some(Box::new(Power::new(rect, res.clone(), Some(child)))),
-                4 => Some(Box::new(Display::new(rect, res.clone(), Some(child)))),
-                5 => Some(Box::new(Theme::new(rect, res.clone(), Some(child)))),
-                6 => Some(Box::new(Language::new(rect, res.clone(), Some(child)))),
-                7 => Some(Box::new(About::new(rect, res.clone(), Some(child)))),
+                0 => Some(Box::new(Wifi::new(rect, res.clone(), Some(child)))),
+                1 => Some(Box::new(Clock::new(rect, res.clone(), Some(child)))),
+                2 => Some(Box::new(Power::new(rect, res.clone(), Some(child)))),
+                3 => Some(Box::new(Display::new(rect, res.clone(), Some(child)))),
+                4 => Some(Box::new(Theme::new(rect, res.clone(), Some(child)))),
+                5 => Some(Box::new(Language::new(rect, res.clone(), Some(child)))),
+                6 => Some(Box::new(About::new(rect, res.clone(), Some(child)))),
                 _ => None,
             }
         } else {
@@ -163,23 +159,16 @@ impl Settings {
     async fn select_entry(&mut self, _commands: Sender<Command>) -> Result<()> {
         let mut selected = self.list.selected();
         if !self.has_wifi {
-            selected += 2
+            selected += 1
         };
         match selected {
-            0 => {
-                self.child = Some(Box::new(SystemUpdate::new(
-                    self.rect,
-                    self.res.clone(),
-                    None,
-                )))
-            }
-            1 => self.child = Some(Box::new(Wifi::new(self.rect, self.res.clone(), None))),
-            2 => self.child = Some(Box::new(Clock::new(self.rect, self.res.clone(), None))),
-            3 => self.child = Some(Box::new(Power::new(self.rect, self.res.clone(), None))),
-            4 => self.child = Some(Box::new(Display::new(self.rect, self.res.clone(), None))),
-            5 => self.child = Some(Box::new(Theme::new(self.rect, self.res.clone(), None))),
-            6 => self.child = Some(Box::new(Language::new(self.rect, self.res.clone(), None))),
-            7 => self.child = Some(Box::new(About::new(self.rect, self.res.clone(), None))),
+            0 => self.child = Some(Box::new(Wifi::new(self.rect, self.res.clone(), None))),
+            1 => self.child = Some(Box::new(Clock::new(self.rect, self.res.clone(), None))),
+            2 => self.child = Some(Box::new(Power::new(self.rect, self.res.clone(), None))),
+            3 => self.child = Some(Box::new(Display::new(self.rect, self.res.clone(), None))),
+            4 => self.child = Some(Box::new(Theme::new(self.rect, self.res.clone(), None))),
+            5 => self.child = Some(Box::new(Language::new(self.rect, self.res.clone(), None))),
+            6 => self.child = Some(Box::new(About::new(self.rect, self.res.clone(), None))),
             _ => unreachable!("Invalid index"),
         }
         self.dirty = true;

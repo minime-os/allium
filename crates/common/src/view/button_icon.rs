@@ -102,8 +102,10 @@ impl ButtonIcons {
         let w = match button {
             Key::A
             | Key::B
+            | Key::C
             | Key::X
             | Key::Y
+            | Key::Z
             | Key::L
             | Key::L2
             | Key::R
@@ -130,8 +132,10 @@ impl ButtonIcons {
         match button {
             Key::A => "A",
             Key::B => "B",
+            Key::C => "C",
             Key::X => "X",
             Key::Y => "Y",
+            Key::Z => "Z",
             Key::Up => "",
             Key::Down => "",
             Key::Left => "",
@@ -176,8 +180,10 @@ impl ButtonIcons {
         let (color, text_str) = match button {
             Key::A => (styles.button_hints.button_a_color, "A"),
             Key::B => (styles.button_hints.button_b_color, "B"),
+            Key::C => (styles.button_hints.button_bg_color, "C"),
             Key::X => (styles.button_hints.button_x_color, "X"),
             Key::Y => (styles.button_hints.button_y_color, "Y"),
+            Key::Z => (styles.button_hints.button_bg_color, "Z"),
             Key::Up => (styles.button_hints.button_bg_color, ""),
             Key::Down => (styles.button_hints.button_bg_color, ""),
             Key::Left => (styles.button_hints.button_bg_color, ""),
@@ -216,7 +222,7 @@ impl ButtonIcons {
         let mut bg_rect = Rect::new(0, 0, 0, 0);
 
         match button {
-            Key::A | Key::B | Key::X | Key::Y => {
+            Key::A | Key::B | Key::C | Key::X | Key::Y | Key::Z => {
                 // Draw circle
                 crate::display::fill_circle(
                     &mut pixmap,

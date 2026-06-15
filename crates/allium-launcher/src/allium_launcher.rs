@@ -171,24 +171,9 @@ impl AlliumLauncher<DefaultPlatform> {
                 self.view.save()?;
                 self.display.clear(Color::new(0, 0, 0))?;
                 self.display.flush()?;
-                #[cfg(feature = "miyoo")]
                 {
                     use std::os::unix::process::CommandExt;
                     let _ = cmd.exec();
-                }
-                #[cfg(not(feature = "miyoo"))]
-                {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::process::CommandExt;
-                        let _ = process::Command::new("/bin/sh")
-                            .arg("-c")
-                            .arg("make simulator bin=allium-menu")
-                            .exec();
-                    }
-
-                    #[cfg(not(unix))]
-                    process::exit(0);
                 }
             }
             Command::ReloadStylesheet(styles, needs_relayout) => {
@@ -261,7 +246,6 @@ impl AlliumLauncher<DefaultPlatform> {
                 self.view.set_should_draw();
             }
             Command::PopulateDb => {
-                #[cfg(feature = "miyoo")]
                 {
                     std::process::Command::new("show")
                         .arg("--clear")
@@ -294,7 +278,6 @@ impl AlliumLauncher<DefaultPlatform> {
                 }
 
                 while let Some(dir) = queue.pop_front() {
-                    #[cfg(feature = "miyoo")]
                     {
                         std::process::Command::new("show")
                             .arg("--clear")

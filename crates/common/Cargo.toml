@@ -11,8 +11,7 @@ path = "src/lib.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-simulator = ["winit", "softbuffer"]
-miyoo = ["evdev", "framebuffer", "sysfs_gpio"]
+minime = ["evdev", "framebuffer"]
 debug-ui = []
 
 [dependencies]
@@ -38,9 +37,6 @@ serde_json.workspace = true
 strum = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
 type-map.workspace = true
-winit = { workspace = true, optional = true }
-softbuffer = { workspace = true, optional = true }
-sysfs_gpio = { workspace = true, features = ["async-tokio"], optional = true }
 wait-timeout.workspace = true
 evdev = { workspace = true, features = ["tokio"], optional = true }
 framebuffer = { workspace = true, optional = true }

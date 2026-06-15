@@ -1,6 +1,0 @@
-[submodule "third-party/dufs"]
-	path = third-party/dufs
-	url = https://github.com/sigoden/dufs.git
-[submodule "third-party/RetroArch-patch"]
-	path = third-party/RetroArch-patch
-	url = https://github.com/goweiwen/RetroArch-patch.git

@@ -399,18 +399,6 @@ impl Stylesheet {
         let json = fs::read_to_string(&stylesheet_path)?;
         let mut styles = serde_json::from_str::<Self>(&json)?;
 
-        #[cfg(feature = "simulator")]
-        {
-            // Write default missing fields to original stylesheet.json
-            if let Ok(file) = File::create(
-                PathBuf::from("../Allium-Themes/Themes")
-                    .join(&theme.0)
-                    .join("stylesheet.json"),
-            ) {
-                serde_json::to_writer_pretty(&file, &styles)?;
-            }
-        }
-
         // Load override file if it exists
         let override_path = ALLIUM_THEMES_DIR
             .join(&theme.0)

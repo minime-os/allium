@@ -144,8 +144,7 @@ impl AlliumDState {
 }
 
 async fn spawn_main() -> Result<Child> {
-    #[cfg(feature = "miyoo")]
-    return Ok(match GameInfo::load()? {
+    Ok(match GameInfo::load()? {
         Some(mut game_info) => {
             debug!("found game info, resuming game");
             game_info.start_time = Utc::now();
@@ -158,20 +157,11 @@ async fn spawn_main() -> Result<Child> {
             Command::new(ALLIUM_LAUNCHER.as_path())
         }
     }
-    .spawn()?);
-
-    #[cfg(not(feature = "miyoo"))]
-    return Ok(Command::new("/bin/sh")
-        .arg("-c")
-        .arg("make simulator-launcher")
-        .spawn()?);
+    .spawn()?)
 }
 
 impl AlliumD<DefaultPlatform> {
     pub async fn new() -> Result<AlliumD<DefaultPlatform>> {
-        #[cfg(feature = "miyoo")]
-        common::platform::miyoo::try_fix_resolution().await?;
-
         let mut platform = DefaultPlatform::new()?;
         let state = AlliumDState::load()?;
 

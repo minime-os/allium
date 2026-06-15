@@ -4,7 +4,6 @@
 mod allium_launcher;
 mod consoles;
 mod entry;
-mod ota;
 mod view;
 
 use anyhow::Result;
@@ -16,9 +15,6 @@ use simple_logger::SimpleLogger;
 #[tokio::main]
 async fn main() -> Result<()> {
     SimpleLogger::new().env().init().unwrap();
-
-    #[cfg(feature = "miyoo")]
-    common::platform::miyoo::try_fix_resolution().await?;
 
     let platform = DefaultPlatform::new()?;
     let mut app = AlliumLauncher::new(platform)?;

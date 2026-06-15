@@ -8,8 +8,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-simulator = ["common/simulator"]
-miyoo = ["common/miyoo"]
+minime = ["common/minime"]
 debug-ui = ["common/debug-ui"] # Draw bounding boxes
 debug-ui-redraw = [] # Show only redraws
 
@@ -27,7 +26,6 @@ qrcode.workspace = true
 quick-xml = { workspace = true, features = ["serde", "serialize"] }
 rand.workspace = true
 regex.workspace = true
-reqwest.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serial_test.workspace = true

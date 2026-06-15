@@ -167,7 +167,6 @@ impl AlliumMenu<DefaultPlatform> {
                             .ok();
                     }
 
-                    #[cfg(feature = "miyoo")]
                     tokio::process::Command::new("screenshot")
                         .arg(screenshot_path)
                         .arg(format!(
@@ -178,12 +177,6 @@ impl AlliumMenu<DefaultPlatform> {
                         .spawn()?
                         .wait()
                         .await?;
-
-                    #[cfg(feature = "simulator")]
-                    std::fs::copy(
-                        common::constants::ALLIUM_SD_ROOT.join("bg-640x480.png"),
-                        screenshot_path,
-                    )?;
                 }
             }
             Command::RetroArchCommand(command) => {

@@ -9,8 +9,7 @@ name = "screenshot-viewer"
 path = "src/main.rs"
 
 [features]
-simulator = ["common/simulator"]
-miyoo = ["common/miyoo"]
+minime = ["common/minime"]
 
 [dependencies]
 anyhow.workspace = true
